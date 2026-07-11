@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Environment variables (KHÔNG commit file .env chứa secret)
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
