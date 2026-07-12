@@ -282,4 +282,41 @@ Claim/lease (LOCK-01..11): claim tách trạng thái nghiệp vụ; `claimed` TT
 
 ---
 
+---
+
+## 11. GIAI ĐOẠN 2 — hoàn thiện MVP (các màn còn lại)
+
+Xây trên nền GĐ1 (đã có schema đầy đủ + engine + RBAC/masking). Giữ nguyên mọi luật 🔴 GĐ1.
+
+### 11.1. Hoàn thiện SCR-02 Việc hôm nay (2 hành động còn thiếu)
+- `GET /api/work/today` PHẢI trả thêm: `customerId`, `organizationId` (để hành động inline), và với việc target=customer (khi người xem có `viewBaby`) kèm **danh sách bé của khách** (id + tên hiển thị theo quyền) để "Xác nhận bé".
+- SCR-02 thêm 2 hành động inline: **Xác nhận bé** (chọn bé từ danh sách → gọi `confirm-baby`, nâng suggested→confirmed) và **Tạm dừng cảnh báo** cho việc đại lý at_risk (mở panel cờ `paused`/`supplierStockoutAffected` như SCR-09). Vẫn tôn trọng masking (không lộ tên bé ở cấp suggested).
+
+### 11.2. SCR-06 Ghi chú tư vấn (CON-01..09, DEC-07 mức MUST)
+- CRUD `consultations`: `issue` (bắt buộc DUY NHẤT), `babyId?`, `advisedProducts[]`, `temperature?` (nong|am|lanh — 🔴 KHÔNG mặc định, CON-01), `result?` (da_chot|chua_chot|tu_choi), `reasonNoBuy?`, `nextContactDate?`, `note?`.
+- 🔴 Sửa KHÔNG ghi đè → lưu `consultation_versions`, hiển thị "đã sửa N lần" (CON-03). `nextContactDate` ⇒ tự tạo follow_up `service_contact` (không bị trần — CON-04). Chống việc hẹn trùng ±3 ngày (CON-05).
+- Mẫu nhanh ⚙️ cấu hình theo nhóm vấn đề (biếng ăn · dị ứng đạm bò · chậm tăng cân · táo bón · khác — CON-06). Mở nhanh modal từ SCR-02 & SCR-04 (CON-07). Autosave draft PHÍA SERVER (SAVE-01, KHÔNG localStorage — dữ liệu sức khỏe trẻ em). NHẠY CẢM: Marketing ẩn (CON-09). `result='da_chot'` KHÔNG tự tính giao dịch — chỉ KV xác minh (CON-02).
+
+### 11.3. SCR-11 Gộp khách (CUS-14..20, PHONE-01..04, CONSENT-01..03, MERGE-01..07)
+- `GET /api/customers/dedup-candidates`: chấm điểm SĐT chuẩn hóa=**100** · SĐT thô=95 · Facebook/Zalo=90 · tên+địa chỉ khớp mờ=70. 🔴 **TÊN GIỐNG NHAU = 0, KHÔNG BAO GIỜ gợi ý** (CUS-16). Ngưỡng gợi ý ⚙️ `dedup.merge_suggest_threshold` (90).
+- `POST /api/customers/merge/preview`: so sánh **từng trường** A vs B; **canonical phone** (PHONE-01: `0912…`/`+84912…` = 1 bản ghi, gộp nhãn nguồn, KHÔNG nhân đôi); consent sau gộp theo bảng CONSENT-01 (**sự kiện hợp lệ MỚI NHẤT thắng; nếu không có Đồng ý-lại mới hơn thì revoked/denied THẮNG; KHÔNG tự suy diễn đồng ý lại**); liệt kê những gì được GIỮ.
+- `POST /api/customers/merge`: 🔴 **CHỈ Chủ shop** + **nhập lại mật khẩu** (MERGE-01). GIỮ TẤT CẢ của cả hai: hồ sơ bé · tư vấn · mã KV · lịch sử mua (hợp nhất) · consent (FULL lịch sử `consent_events`, không chỉ boolean). Ghi `merge_history`. 🔴 **KHÔNG gộp hồ sơ bé** (BABY-11 GĐ2) — giữ riêng, gắn cờ `suspected_duplicate_baby`. SĐT trùng giữa 2 khách (gia đình) KHÔNG chặn/tự gộp (PHONE-04).
+- `POST /api/customers/unmerge`: chỉ khi **chưa phát sinh dữ liệu mới** sau gộp; đã phát sinh ⇒ 🔴 tạo ticket xử lý tay (CUS-19/MERGE-05). Mọi thao tác gộp/tách ghi audit (CUS-20).
+- 🔴 MERGE-07: KHÔNG dùng câu "không mất dữ liệu nào"; dùng "KHÔNG XÓA dữ liệu nguồn; mọi xung đột được giải quyết hoặc giữ lịch sử". Marketing mở màn nghi trùng vẫn KHÔNG thấy bé/tư vấn/SĐT đầy đủ (MERGE-06).
+
+### 11.4. SCR-12 Đồng bộ KiotViet (SYNC-22..26, SYNC-01..07 UI, NFR SLO)
+- `GET /api/sync/status`: theo từng đối tượng (khách/SP/hóa đơn/dòng/trả hàng) — lần đồng bộ cuối · số bản ghi · số lỗi. `GET /api/sync/queue`: đang chờ/đang xử lý/lỗi(retry)/**dead-letter** + độ trễ webhook p95. `GET /api/sync/reconciliation`: đối soát **T-1 khớp tuyệt đối** (số hóa đơn · dòng · trả hàng · doanh thu thuần) vs kỳ hôm nay cho phép lệch do timing (SYNC-03). `GET /api/sync/webhooks`: sự kiện đã đăng ký/`inactive` + cảnh báo.
+- Hành động: retry sự kiện lỗi (trợ lý dữ liệu), **Full resync** (🔴 Chủ shop + xác nhận + mật khẩu; KHÔNG nhân đôi, KHÔNG mất dữ liệu CRM — SYNC-24), đăng ký lại webhook. Initial load: tiến độ + **Tạm dừng / Dừng an toàn** (KHÔNG nút "Hủy" mơ hồ — SYNC-02 UI).
+- 🔴 CRM KHÔNG sập khi KV lỗi — hiển thị mirror gần nhất + cảnh báo (SYNC-26); banner cảnh báo ở đầu SCR-02 khi đồng bộ chậm. Vai: Chủ shop + Trợ lý dữ liệu; log kỹ thuật chỉ 2 vai này (không lộ secret). **Seed** một ít `sync_events`/`sync_state`/`sync_reconciliation` để demo dashboard.
+
+### 11.5. SCR-16 Báo cáo (RPT-01..07, Metric Dictionary §14 FDS)
+- 🔥 **RPT-04 Tác động thật**: `% mua lại (treatment) − % mua lại (holdout)` cùng tiêu chí đầu vào. 🔴 **Chỉ dùng `Attributed CRM conversion`** (hóa đơn SAU liên hệ + gắn follow-up), KHÔNG lấy tổng "đã mua sau gọi". 🔴 **Chưa đủ mẫu (< tối thiểu ⚙️) ⇒ KHÔNG hiển thị kết luận** — hiện trạng thái "đang thu thập / chưa đủ mẫu / có thể tham khảo / đủ tin cậy" + khoảng tin cậy. Cần seed `experiments` + `experiment_assignments` (gán theo `hash(customerId+experimentId)`) để có dữ liệu.
+- **RPT-03 Tỷ lệ mua lại**: nêu rõ kỳ (30/60/90) · cùng SKU vs cùng replacement_group · đúng bé · sau nhắc vs tự nhiên.
+- **RPT-05 Đại lý**: 🔥 **báo cáo LÝ DO giảm/ngừng nhập — CHỈ `reasonStatus=confirmed`** (loại "chưa xác định"). RPT-06 chất lượng dữ liệu (đã có endpoint — bổ sung UI): % đã xác nhận phân bổ · % gợi ý chưa XN · % cấp khách · tỷ lệ tự gắn sai (mẫu tay) · SP thiếu chu kỳ · khách chưa có bé.
+- Metric Dictionary: 🔴 KHÔNG gọi "LTV" → "Doanh thu tích lũy"; nhịp nhập = **trung vị**; tách "Repurchase verified" vs "Attributed CRM conversion". Marketing KHÔNG thấy báo cáo có dữ liệu bé.
+
+*(Ngoài GĐ2 này vẫn còn: SCR-13/14/15 quản trị/cấu hình/holdout UI đầy đủ, webhook KiotViet THẬT, 2FA/thiết bị tin cậy đầy đủ, export có duyệt — làm sau.)*
+
+---
+
 *Hết SPEC DIGEST. Chi tiết sâu hơn: hỏi người dùng (FDS/PRD/UI Spec gốc ngoài repo).*
