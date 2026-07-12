@@ -1,0 +1,15 @@
+import './env';
+import { PrismaClient } from '@prisma/client';
+
+// Singleton Prisma client (tránh tạo nhiều connection khi tsx watch reload).
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    log: process.env.NODE_ENV === 'production' ? ['warn', 'error'] : ['warn', 'error'],
+  });
+
+if (process.env.NODE_ENV !== 'production') {
+  globalForPrisma.prisma = prisma;
+}

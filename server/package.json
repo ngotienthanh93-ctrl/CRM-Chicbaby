@@ -1,0 +1,43 @@
+{
+  "name": "@chicbaby/server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CRM Chicbaby - Express 5 + TypeScript + Prisma backend (cổng 4000)",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "prisma generate && tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "db:migrate": "dotenv -e ../.env -- prisma migrate dev",
+    "db:migrate:create": "dotenv -e ../.env -- prisma migrate dev --create-only",
+    "db:deploy": "dotenv -e ../.env -- prisma migrate deploy",
+    "db:seed": "dotenv -e ../.env -- tsx prisma/seed.ts",
+    "db:reset": "dotenv -e ../.env -- prisma migrate reset --force",
+    "prisma:generate": "dotenv -e ../.env -- prisma generate",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "prisma": {
+    "seed": "dotenv -e ../.env -- tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.3.1",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^5.1.0",
+    "helmet": "^8.3.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.8",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "dotenv-cli": "^8.0.0",
+    "prisma": "^6.3.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}
