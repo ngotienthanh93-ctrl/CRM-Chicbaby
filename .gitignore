@@ -5,6 +5,9 @@ node_modules/
 dist/
 server/dist/
 
+# TypeScript incremental build info (artifact, không commit)
+*.tsbuildinfo
+
 # Environment variables (KHÔNG commit file .env chứa secret)
 .env
 .env.local

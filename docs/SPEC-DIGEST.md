@@ -315,7 +315,31 @@ Xây trên nền GĐ1 (đã có schema đầy đủ + engine + RBAC/masking). Gi
 - **RPT-05 Đại lý**: 🔥 **báo cáo LÝ DO giảm/ngừng nhập — CHỈ `reasonStatus=confirmed`** (loại "chưa xác định"). RPT-06 chất lượng dữ liệu (đã có endpoint — bổ sung UI): % đã xác nhận phân bổ · % gợi ý chưa XN · % cấp khách · tỷ lệ tự gắn sai (mẫu tay) · SP thiếu chu kỳ · khách chưa có bé.
 - Metric Dictionary: 🔴 KHÔNG gọi "LTV" → "Doanh thu tích lũy"; nhịp nhập = **trung vị**; tách "Repurchase verified" vs "Attributed CRM conversion". Marketing KHÔNG thấy báo cáo có dữ liệu bé.
 
-*(Ngoài GĐ2 này vẫn còn: SCR-13/14/15 quản trị/cấu hình/holdout UI đầy đủ, webhook KiotViet THẬT, 2FA/thiết bị tin cậy đầy đủ, export có duyệt — làm sau.)*
+---
+
+## 12. GIAI ĐOẠN 3 — Quản trị (hoàn tất 16 màn MVP)
+
+Chỉ **Chủ shop / Quản trị** truy cập. Thao tác nhạy cảm ⇒ **nhập lại mật khẩu** (AUTH-12). Mọi thay đổi ghi **audit append-only**.
+
+### 12.1. SCR-13 Quản trị người dùng & phân quyền (SEC-04..16, ADM-01..05)
+- **Người dùng**: danh sách (vai, trạng thái, lần đăng nhập cuối), Thêm/Khóa/Đặt-lại-mật-khẩu. 🔴 **KHÔNG xóa user đã có thao tác** — chỉ vô hiệu (ADM-04). Nghỉ việc ⇒ khóa + **thu hồi phiên & thiết bị NGAY** (ADM-02/SEC-14). Đổi quyền ⇒ **thu hồi phiên NGAY** (ADM-01). Chuyển giao khách/việc đang phụ trách (ADM-03/SEC-15).
+- **Vai & quyền**: ma trận Vai × Hành động (checkbox). **Quyền trường nhạy cảm** (SĐT/địa chỉ/dữ liệu bé/tư vấn/công nợ): Xem đầy đủ / Xem ẩn / Ẩn hoàn toàn / Export.
+- **Thiết bị tin cậy**: liệt kê + thu hồi từng cái / "đăng xuất mọi thiết bị". Mã khôi phục dự phòng.
+- **Nhật ký hoạt động**: lọc; 🔴 dữ liệu nhạy cảm **MASK** (SEC-12). **Lịch sử đổi quyền** (ai đổi quyền ai, cũ→mới, lý do).
+- Endpoint mới cần: users CRUD (POST/PUT/lock/reset), role-permission config (GET/PUT ma trận + quyền trường nhạy cảm — lưu versioned), sessions/devices (list/revoke), audit-logs (GET, masked). `POST /api/auth/reauth` (verify mật khẩu).
+
+### 12.2. SCR-14 Cấu hình hệ thống (CFG-01..06, Phụ lục B)
+- Tham số theo nhóm (nhắc / đại lý / đồng bộ / chống trùng / thí nghiệm / bé / claim…). Đã có `GET /api/config` + `PUT /api/config/:key`.
+- 🔴 Mỗi lần đổi: **bắt buộc ghi lý do** + lưu `configuration_change_logs` (ai/cũ→mới/ngày hiệu lực). 🔴 Bắt buộc chọn **`appliesTo`**: `new_only` (chỉ việc mới) vs `recalculate` (tính lại việc cũ) — mặc định new_only; chọn recalculate ⇒ **PREVIEW ảnh hưởng** (số việc đổi/ĐÓNG/MẤT) trước khi áp (CFG-02/03, CYC-08).
+- 🔴 Trần `service_contact` = ∞ **KHÓA CỨNG** không sửa (CFG-05/REM-R-07). 🔴 Chỉ Chủ shop/Quản trị được đánh dấu một loại việc là `service_contact` (CFG-06 — tránh nhân viên né trần).
+- **Rollback tham số** ≠ rollback dữ liệu: nút Rollback chỉ đưa THAM SỐ về bản trước; ghi rõ "việc đã tính lại KHÔNG tự hoàn tác" (CFG-04). Endpoint: `GET /api/config/:key/history`, `POST /api/config/:key/rollback`, `POST /api/config/recalculate-preview`.
+
+### 12.3. SCR-15 Quản lý thí nghiệm holdout (EXP-01..07)
+- Danh sách + tạo/sửa `experiments`: `name`, `startAt`/`endAt` (bắt buộc có kết thúc), `holdoutRatio` (⚙️10–15%), vai/nhóm SP áp dụng, `minSampleTreatment`/`minSampleHoldout` (⚙️300/100). 🔴 **6 luật loại trừ KHÓA CỨNG** (không bỏ tick): khách VIP · đại lý at_risk · khách đã yêu cầu gọi lại · khiếu nại · đơn/giao/công nợ · `service_contact`.
+- 🔴 Phân nhóm theo **`hash(customerId + experimentId)`** — một khách LUÔN một nhóm suốt thí nghiệm (EXP-01/02, chống nhiễm chéo). Việc holdout KHÔNG hiện SCR-02 (EXP-04). Bật/sửa ⇒ **nhập lại mật khẩu** + audit (EXP-05). 🔴 **Chưa đủ mẫu ⇒ KHÔNG hiện kết luận** (EXP-06). Sau pilot: tắt hoặc giữ ⚙️5% giám sát.
+- Endpoint: experiments CRUD (chủ shop + password), hiển thị số mẫu treatment/holdout hiện tại + trạng thái đủ mẫu.
+
+*(Sau GĐ3 vẫn còn: webhook KiotViet THẬT (cần API Spike của shop), 2FA/OTP đầy đủ, export có duyệt hoàn chỉnh, gộp hồ sơ bé — xem docs/HANDOFF.md.)*
 
 ---
 

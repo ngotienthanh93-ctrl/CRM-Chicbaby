@@ -1,6 +1,6 @@
 # HANDOFF — CRM Chicbaby (bàn giao giữa các phiên)
 
-> Đọc file này ĐẦU TIÊN khi mở lại dự án ở phiên sau. Cập nhật lần cuối: **2026-07-12**.
+> Đọc file này ĐẦU TIÊN khi mở lại dự án ở phiên sau. Cập nhật lần cuối: **2026-07-12** (GĐ3 SCR-13 xong, 16/16 màn).
 > Nguồn sự thật chi tiết: [`CLAUDE.md`](../CLAUDE.md) (kiến trúc/cách chạy/nguyên tắc) + [`docs/SPEC-DIGEST.md`](SPEC-DIGEST.md) (luật nghiệp vụ + màn hình + §11 Giai đoạn 2).
 
 ## 1. Sản phẩm là gì
@@ -21,26 +21,29 @@ npm run dev                                # server 4000 + client 5173
 Tài khoản seed (pass `chicbaby@123`): `chushop · crm · cskh · marketing · trolydulieu`.
 
 ## 3. Trạng thái Git (QUAN TRỌNG)
-- Nhánh `main`: chỉ có `Initial commit` (scaffold cũ).
-- Nhánh **`feature/mvp-core`** (đã push GitHub): **GĐ1 MVP lõi**, 3 commit (hạ tầng · backend · frontend). PR chưa mở (gh chưa đăng nhập — mở qua web: https://github.com/ngotienthanh93-ctrl/CRM-Chicbaby/pull/new/feature/mvp-core).
-- Nhánh **`feature/mvp-phase2`** (nhánh HIỆN TẠI, tách từ mvp-core): **GĐ2**, **CHƯA COMMIT** (~41 file staged). ⚠️ Commit GĐ2 khi tiếp tục (kèm file HANDOFF.md này).
-- `.env`, `.codex-review/`, `node_modules/` đã gitignore — không commit.
+- Nhánh làm việc HIỆN TẠI: **`feature/mvp-phase3`** — cộng dồn GĐ1 + GĐ2 + **GĐ3 (SCR-13)**, đã push GitHub (`git push -u origin feature/mvp-phase3`).
+- Lịch sử: `db059e8` hạ tầng · GĐ1 (`ea76548` server, `297a9e5` client) · GĐ2 (`3cc3ca3` docs, `bdf7e8c` server, `c743c7a` client) · **GĐ3 SCR-13** (docs → server → client).
+- Nhánh cũ đã push: `feature/mvp-core` (GĐ1), `feature/mvp-phase2` (GĐ2). `main` = scaffold. PR chưa mở.
+- `.env`, `.codex-review/`, `node_modules/`, `*.tsbuildinfo` đã gitignore — không commit.
 
-## 4. Đã build (14 màn, backend đầy đủ)
+## 4. Đã build (16/16 màn MVP, backend đầy đủ)
 **GĐ1 (MVP lõi)** — SCR-01 Đăng nhập · SCR-02 Việc hôm nay · SCR-03 Danh sách khách · SCR-04 Khách 360 · SCR-05 Hồ sơ bé · SCR-07 Phân bổ bé · SCR-08 Cấu hình chu kỳ · SCR-09 Đại lý. Backend: 51 model Prisma (CRM-owned + `kv_*` mirror + hạ tầng), 3 engine (nhắc tiêu dùng, phân bổ bé 3 cấp, nhắc nhập bù), RBAC + masking server-side, CHECK constraint + audit append-only.
 
 **GĐ2 (hoàn thiện MVP)** — SCR-02 thêm Xác nhận bé + Tạm dừng cảnh báo · SCR-06 Ghi chú tư vấn · SCR-11 Gộp khách (canonical phone, consent CONSENT-01, chỉ chủ shop + mật khẩu) · SCR-12 Đồng bộ KiotViet (dashboard) · SCR-16 Báo cáo (uplift/holdout, chất lượng dữ liệu, lý do đại lý). Chi tiết luật: SPEC-DIGEST §11.
 
-**Chất lượng:** test **172 pass** (vitest). Đã qua Codex review đối kháng (Claude ↔ Codex):
+**GĐ3 (quản trị)** — SCR-13 Quản trị người dùng & phân quyền: users CRUD + khóa/mở/reset/chuyển giao việc (ADM-01..05), phiên & thiết bị (thu hồi / "đăng xuất mọi thiết bị"), nhật ký hoạt động (mask SEC-12) + lịch sử đổi quyền, **ma trận Vai×Quyền + quyền trường nhạy cảm VERSIONED + THỰC THI THẬT** (`getEffectivePermissions` merge override lên code-default; `chu_shop` khóa cứng; đổi quyền/khóa → thu hồi phiên NGAY), `POST /api/auth/reauth`. Bảo mật: reauth có throttle (khóa userId+IP, audit — CWE-307) áp cả merge/full-resync; chính sách mật khẩu ≥8 (CWE-521). Chi tiết luật: SPEC-DIGEST §12. (SCR-14/15 backend đã có phần lõi — xem §5.)
+
+**Chất lượng:** test **190 pass** (vitest). Đã qua Codex review đối kháng (Claude ↔ Codex):
 - GĐ1: `codex-impl-review` APPROVE (10 fix), `codex-security-review` APPROVE (7 fix, risk low).
 - GĐ2: `codex-impl-review` APPROVE (7 fix). *(GĐ2 chưa chạy security-review.)*
+- GĐ3: `codex-impl-review` APPROVE (4 fix: masked over-grant, RBAC nhiều hàng active, guard chủ-shop-cuối bị race, audit-after-commit) + `codex-security-review` APPROVE (2 fix: reauth brute-force throttle, password policy ≥8).
 
 ## 5. CHƯA làm (backlog — schema đã dựng sẵn)
-- SCR-13 Quản trị người dùng/phân quyền · SCR-14 Cấu hình hệ thống (UI đầy đủ) · SCR-15 Quản lý thí nghiệm holdout (UI).
+- **SCR-14 Cấu hình hệ thống** (UI đầy đủ: change-log bắt buộc lý do, `appliesTo` new_only/recalculate + PREVIEW ảnh hưởng, rollback tham số) · **SCR-15 Quản lý thí nghiệm holdout** (UI: 6 luật loại trừ khóa cứng, hash(customerId+expId), reauth). Spec đã có ở SPEC-DIGEST §12.2/§12.3; endpoint config lõi đã có (`GET /api/config`, `PUT /api/config/:key`).
 - **Webhook KiotViet THẬT** (hiện mirror nạp bằng seed; có `sync_events`/`sync_state` sẵn; full-resync/webhook đang mô phỏng state).
-- 2FA/thiết bị tin cậy đầy đủ (hiện chỉ session cookie + lockout in-memory).
+- 2FA/thiết bị tin cậy đầy đủ (hiện session cookie; reauth + login lockout **in-memory**).
 - Export dữ liệu có duyệt (workflow đầy đủ) · gộp hồ sơ bé (hiện chỉ gắn cờ `suspectedDuplicateBaby`).
-- **Bảo mật cần làm khi lên production**: lockout chuyển từ in-memory → DB/Redis; chạy `npm audit` (chưa chạy được do môi trường offline); GĐ2 nên chạy `codex-security-review`.
+- **Bảo mật cần làm khi lên production**: chuyển reauth/login lockout in-memory → DB/Redis; chạy `npm audit` (chưa chạy được do môi trường offline).
 
 ## 6. Cách làm việc đã dùng (giữ nguyên ở phiên sau)
 Quy trình đã chứng minh hiệu quả cho dự án này:
@@ -50,10 +53,9 @@ Quy trình đã chứng minh hiệu quả cho dự án này:
 4. **Commit theo cụm** trên nhánh riêng (không commit thẳng `main`), trailer `Co-Authored-By`. Chỉ commit/push khi người dùng yêu cầu.
 
 ## 7. Việc nên làm tiếp (đề xuất thứ tự)
-1. **Commit GĐ2** (nhánh `feature/mvp-phase2`) + HANDOFF.md này.
-2. (Tùy chọn) `codex-security-review` cho GĐ2 (mặt mới: merge+reauth, full-resync, báo cáo dữ liệu bé).
-3. Build backlog: SCR-13/14/15 → hoặc tích hợp **webhook KiotViet thật** (cần API Spike thật của shop — xem PRD Gate 2).
-4. Chuyển lockout sang DB, chạy `npm audit`, mở PR.
+1. Build **SCR-14** (cấu hình + change-log + `appliesTo`/recalculate-preview + rollback) và **SCR-15** (holdout: 6 luật loại trừ, hash phân nhóm, reauth) — 2 màn quản trị còn lại (spec §12.2/§12.3).
+2. Chuyển reauth/login lockout in-memory → DB/Redis; chạy `npm audit`; mở PR.
+3. Tích hợp **webhook KiotViet thật** (cần API Spike thật của shop — xem PRD Gate 2).
 
 ## 8. Cách RESUME ở phiên sau
 - Mở thư mục `~/Projects/CRM - Chicbaby/dự án CRM` trong Claude Code.
