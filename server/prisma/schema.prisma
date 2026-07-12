@@ -447,7 +447,25 @@ model MergeHistory {
   mergedAt   DateTime @default(now())
   revertible Boolean  @default(true)
 
+  @@index([masterId])
   @@map("merge_history")
+}
+
+// 🔴 §11.3 MERGE-05/CUS-19: khi ĐÃ phát sinh dữ liệu mới sau gộp mà cần tách ⇒ tạo ticket xử lý tay.
+model MergeUnmergeTicket {
+  id             String   @id @default(cuid())
+  mergeHistoryId String?
+  masterId       String
+  mergedId       String
+  reason         String
+  status         String   @default("open") // open | resolved | rejected
+  requestedBy    String
+  resolvedBy     String?
+  resolvedAt     DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([status])
+  @@map("merge_unmerge_tickets")
 }
 
 // ============================================================
@@ -473,6 +491,8 @@ model BabyProfile {
   conditionRecordedBy  String?
   conditionRecordedAt  DateTime?
   note                 String?
+  // 🔴 §11.3 MERGE: KHÔNG gộp hồ sơ bé khi gộp khách — giữ riêng, gắn cờ nghi trùng để người dùng kiểm.
+  suspectedDuplicateBaby Boolean     @default(false)
   version              Int           @default(0)
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt

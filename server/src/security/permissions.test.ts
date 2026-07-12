@@ -41,6 +41,32 @@ describe('SEC-FIX-2 — manageOrganization (mutation đại lý)', () => {
   });
 });
 
+describe('§11.4 — manageSync (dashboard đồng bộ chỉ 2 vai)', () => {
+  it('🔴 chu_shop + tro_ly_du_lieu => manageSync = true', () => {
+    expect(permissionsFor('chu_shop').manageSync).toBe(true);
+    expect(permissionsFor('tro_ly_du_lieu').manageSync).toBe(true);
+  });
+
+  it('🔴 crm_officer + cskh + marketing => manageSync = false (403)', () => {
+    expect(permissionsFor('crm_officer').manageSync).toBe(false);
+    expect(permissionsFor('cskh').manageSync).toBe(false);
+    expect(permissionsFor('marketing').manageSync).toBe(false);
+  });
+});
+
+describe('FIX-5 — /reports/data-quality gác theo viewBaby (báo cáo CÓ dữ liệu bé)', () => {
+  it('🔴 marketing & tro_ly_du_lieu => viewBaby = false (⇒ requirePermission(viewBaby) trả 403)', () => {
+    expect(permissionsFor('marketing').viewBaby).toBe(false);
+    expect(permissionsFor('tro_ly_du_lieu').viewBaby).toBe(false);
+  });
+
+  it('vai được xem bé (chu_shop/crm_officer/cskh) => viewBaby = true (xem được data-quality)', () => {
+    expect(permissionsFor('chu_shop').viewBaby).toBe(true);
+    expect(permissionsFor('crm_officer').viewBaby).toBe(true);
+    expect(permissionsFor('cskh').viewBaby).toBe(true);
+  });
+});
+
 describe('FIX-1 — nội dung follow-up KHÔNG lộ tên bé cho vai thiếu quyền', () => {
   const withBaby = permissionsFor('crm_officer'); // viewBaby = true
   const noBaby = permissionsFor('marketing'); // viewBaby = false

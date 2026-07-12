@@ -86,3 +86,44 @@ export function evaluateMergePair(
   const suggest = score >= threshold && signalCount >= 2;
   return { score, suggest, autoMerge: false, signals, familyPhoneRisk };
 }
+
+// ---------- §11.3 SCR-11: chấm điểm theo bảng CUS-14..16 (cho endpoint dedup-candidates) ----------
+// Thang điểm CUS-16: SĐT chuẩn hóa=100 · Facebook/Zalo=90 · tên+địa chỉ khớp mờ=70.
+// 🔴 TÊN GIỐNG NHAU MỘT MÌNH = 0 (không cộng điểm — KHÔNG bao giờ gợi ý chỉ vì trùng tên).
+// 🔴 Chung SĐT nhưng KHÁC TÊN = rủi ro gia đình dùng chung số (CUS-13/UAT-17) ⇒ KHÔNG gợi ý.
+export interface DedupCandidateScore {
+  score: number;
+  reasons: string[];
+  suggest: boolean;
+  familyPhoneRisk: boolean;
+}
+
+export function scoreDedupPair(
+  a: MergeCandidateCustomer,
+  b: MergeCandidateCustomer,
+  threshold: number,
+): DedupCandidateScore {
+  const sig = computeSignals(a, b);
+  let score = 0;
+  const reasons: string[] = [];
+  if (sig.samePhone) {
+    score = Math.max(score, 100);
+    reasons.push('Trùng số điện thoại (đã chuẩn hóa)');
+  }
+  if (sig.sameFacebook) {
+    score = Math.max(score, 90);
+    reasons.push('Trùng Facebook');
+  }
+  if (sig.sameZalo) {
+    score = Math.max(score, 90);
+    reasons.push('Trùng Zalo');
+  }
+  if (sig.sameName && sig.sameAddress) {
+    score = Math.max(score, 70);
+    reasons.push('Trùng tên + địa chỉ (khớp mờ)');
+  }
+  // 🔴 tên giống một mình = 0: KHÔNG thêm điểm, KHÔNG thêm lý do.
+  const familyPhoneRisk = sig.samePhone && !sig.sameName;
+  const suggest = score >= threshold && !familyPhoneRisk;
+  return { score, reasons, suggest, familyPhoneRisk };
+}

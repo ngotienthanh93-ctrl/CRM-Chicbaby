@@ -18,6 +18,7 @@ import {
   generateConsumptionFollowUps,
   generateReplenishmentFollowUps,
 } from '../src/engines/generate';
+import { assignExperimentGroup } from '../src/engines/experiment';
 import type { Prisma } from '@prisma/client';
 
 // ---------- Mốc thời gian cố định ----------
@@ -77,7 +78,13 @@ async function clearAll() {
   await prisma.session.deleteMany();
   await prisma.user.deleteMany();
   await prisma.role.deleteMany();
+  await prisma.mergeUnmergeTicket.deleteMany();
   await prisma.mergeHistory.deleteMany();
+  // §11.4 hạ tầng đồng bộ (seed lại để dashboard có dữ liệu minh họa).
+  await prisma.syncEvent.deleteMany();
+  await prisma.syncState.deleteMany();
+  await prisma.syncReconciliation.deleteMany();
+  await prisma.apiCredential.deleteMany();
 }
 
 // ============================================================
@@ -208,6 +215,20 @@ async function main() {
       data: { key: item.key, value: item.value as never, isActive: true },
     });
   }
+  // §11.2 CON-06: mẫu nhanh tư vấn theo nhóm vấn đề (⚙️ cấu hình, GET /api/config trả về).
+  await prisma.configurationVersion.create({
+    data: {
+      key: 'consultation.quick_templates',
+      value: [
+        { group: 'bieng_an', label: 'Biếng ăn', issue: 'Bé biếng ăn, hỏi giải pháp' },
+        { group: 'di_ung_dam_bo', label: 'Dị ứng đạm bò', issue: 'Nghi dị ứng đạm sữa bò' },
+        { group: 'cham_tang_can', label: 'Chậm tăng cân', issue: 'Bé chậm tăng cân' },
+        { group: 'tao_bon', label: 'Táo bón', issue: 'Bé táo bón, hỏi men vi sinh' },
+        { group: 'khac', label: 'Khác', issue: '' },
+      ] as never,
+      isActive: true,
+    },
+  });
 
   // ---- Replacement groups ----
   const rgNames: Record<string, string> = {
@@ -372,6 +393,27 @@ async function main() {
     phone: SHARED_FAMILY_PHONE,
     roles: ['retail_customer'],
     babies: [],
+  });
+
+  // Cặp NGHI TRÙNG THẬT (dedup-candidates gợi ý): CÙNG tên + CÙNG số (canonical) + CÙNG facebook.
+  // 🔴 KHÔNG phải family-phone-risk (tên giống nhau) => score 100 => gợi ý gộp.
+  customerDefs.push({
+    key: 'dup_a',
+    kvName: 'Trần Thị Đúp',
+    group: 'le',
+    phone: '0921112223',
+    roles: ['retail_customer'],
+    babies: [],
+    facebook: 'fb.com/tranthidup',
+  });
+  customerDefs.push({
+    key: 'dup_b',
+    kvName: 'Trần Thị Đúp',
+    group: 'le',
+    phone: '+84921112223',
+    roles: ['retail_customer'],
+    babies: [],
+    facebook: 'fb.com/tranthidup',
   });
 
   // Khách VỪA LẺ VỪA SỈ (CUS-03 / UAT-15/23) — 2 vai
@@ -826,17 +868,20 @@ async function main() {
       minSampleHoldout: 5,
     },
   });
+  // 🔴 EXP-01: gán nhóm theo hash(customerId+experimentId) — ~10% holdout, ổn định.
+  // 🔴 LOẠI VIP/at_risk: 'both_1' (khách vừa lẻ vừa sỉ) coi như VIP => không đưa vào thí nghiệm.
   const holdoutCustomerIds = new Set<string>();
-  // deterministic: mỗi khách thứ 7 vào holdout
-  runtime.forEach((r, i) => {
-    if (r.def.roles.includes('retail_customer') && i % 7 === 3) {
-      holdoutCustomerIds.add(r.customerId);
-    }
-  });
-  for (const cid of holdoutCustomerIds) {
+  const treatmentCustomerIds = new Set<string>();
+  const vipKeys = new Set<string>(['both_1']);
+  for (const r of runtime) {
+    if (!r.def.roles.includes('retail_customer')) continue;
+    if (vipKeys.has(r.def.key)) continue; // loại VIP/at_risk
+    const group = assignExperimentGroup(r.customerId, experiment.id, Number(experiment.holdoutRatio));
     await prisma.experimentAssignment.create({
-      data: { experimentId: experiment.id, customerId: cid, group: 'holdout' },
+      data: { experimentId: experiment.id, customerId: r.customerId, group: group as never },
     });
+    if (group === 'holdout') holdoutCustomerIds.add(r.customerId);
+    else treatmentCustomerIds.add(r.customerId);
   }
 
   // ============================================================
@@ -857,6 +902,169 @@ async function main() {
   });
 
   // ============================================================
+  // 8b) follow_up_conversions minh họa (RPT-03/04) — để báo cáo có số.
+  //   - treatment: verified + ATTRIBUTED (sau nhắc) — mốc mua SAU ngày nhắc.
+  //   - holdout: verified nhưng KHÔNG attributed (mua tự nhiên).
+  // ============================================================
+  let conversionCount = 0;
+  const treatmentFollowUps = await prisma.followUp.findMany({
+    where: {
+      reminderType: 'consumption',
+      customerId: { in: [...treatmentCustomerIds] },
+    },
+    orderBy: { dueDate: 'asc' },
+    take: 8,
+  });
+  for (const fu of treatmentFollowUps) {
+    await prisma.followUpConversion.create({
+      data: {
+        followUpId: fu.id,
+        verificationStatus: 'verified',
+        attributionStatus: 'attributed', // 🔴 chỉ Attributed mới vào báo cáo tác động
+        customerReport: 'already_purchased',
+        // 🔴 FIX-6: mua lại gần đây, TRONG cửa sổ thí nghiệm [startAt, now). daysBefore(2..4) = quá khứ so với now.
+        matchedAt: daysBefore(2 + (conversionCount % 3)),
+        matchMethod: 'auto',
+      },
+    });
+    conversionCount++;
+  }
+  // 🔴 FIX-6: minh họa khách có NHIỀU lần mua lại — tử số uplift phải đếm DISTINCT khách (KHÔNG phồng).
+  //   Thêm 1 conversion attributed nữa cho CÙNG khách của follow-up đầu ⇒ 2 dòng nhưng chỉ 1 khách distinct.
+  const firstTreatmentFu = treatmentFollowUps[0];
+  if (firstTreatmentFu) {
+    const secondFu =
+      (await prisma.followUp.findFirst({
+        where: {
+          reminderType: 'consumption',
+          customerId: firstTreatmentFu.customerId,
+          id: { not: firstTreatmentFu.id },
+          conversions: { none: {} },
+        },
+      })) ?? firstTreatmentFu; // fallback: cùng follow-up (vẫn cùng khách ⇒ vẫn minh họa distinct)
+    await prisma.followUpConversion.create({
+      data: {
+        followUpId: secondFu.id,
+        verificationStatus: 'verified',
+        attributionStatus: 'attributed',
+        customerReport: 'already_purchased',
+        matchedAt: daysBefore(5),
+        matchMethod: 'auto',
+      },
+    });
+    conversionCount++;
+  }
+  const holdoutFollowUps = await prisma.followUp.findMany({
+    where: {
+      reminderType: 'consumption',
+      customerId: { in: [...holdoutCustomerIds] },
+    },
+    take: 3,
+  });
+  for (const fu of holdoutFollowUps) {
+    await prisma.followUpConversion.create({
+      data: {
+        followUpId: fu.id,
+        verificationStatus: 'verified',
+        attributionStatus: 'not_attributed', // mua tự nhiên (holdout không nhận nhắc)
+        customerReport: 'already_purchased',
+        matchedAt: daysBefore(20),
+        matchMethod: 'auto',
+      },
+    });
+    conversionCount++;
+  }
+
+  // ============================================================
+  // 9) Hạ tầng ĐỒNG BỘ KiotViet (§11.4) — dữ liệu minh họa cho SCR-12.
+  // ============================================================
+  const SYNC_OBJECT_TYPES = ['customer', 'product', 'invoice', 'invoice_line', 'return'] as const;
+  for (const objectType of SYNC_OBJECT_TYPES) {
+    await prisma.syncState.create({
+      data: {
+        objectType,
+        lastCursor: `cursor_${objectType}_${daysBefore(0).toISOString().slice(0, 10)}`,
+        lastSyncAt: daysBefore(0), // đồng bộ gần đây
+      },
+    });
+  }
+  // sync_events: đủ các trạng thái (pending/processing/done/error/dead_letter).
+  const eventPlan: { status: 'pending' | 'processing' | 'done' | 'error' | 'dead_letter'; count: number }[] = [
+    { status: 'done', count: 18 },
+    { status: 'pending', count: 5 },
+    { status: 'processing', count: 2 },
+    { status: 'error', count: 3 },
+    { status: 'dead_letter', count: 2 },
+  ];
+  let evSeq = 0;
+  for (const plan of eventPlan) {
+    for (let k = 0; k < plan.count; k++) {
+      evSeq++;
+      const objectType = SYNC_OBJECT_TYPES[evSeq % SYNC_OBJECT_TYPES.length]!;
+      const createdAt = daysBefore(0);
+      // done: mô phỏng độ trễ xử lý (updatedAt sau createdAt vài giây) để tính p95.
+      const updatedAt =
+        plan.status === 'done' ? new Date(createdAt.getTime() + (1500 + k * 200)) : createdAt;
+      await prisma.syncEvent.create({
+        data: {
+          objectType,
+          objectId: `${objectType}_evt_${evSeq}`,
+          kvModifiedAt: createdAt,
+          eventId: `WH_${evSeq}`,
+          payload: { demo: true, objectType } as never,
+          status: plan.status as never,
+          attempts: plan.status === 'dead_letter' ? 5 : plan.status === 'error' ? 2 : plan.status === 'done' ? 1 : 0,
+          // 🔴 FIX-7 (SEC-10): lỗi thô CÓ THỂ chứa URL/token/header — seed cố tình nhét secret giả để
+          //   kiểm chứng response /queue ĐÃ scrub (không lộ). Không dùng secret thật.
+          error:
+            plan.status === 'error'
+              ? 'ETIMEDOUT khi gọi https://public.kiotapi.com/webhooks?access_token=kv_live_9f8e7d6c5b4a3210 (mô phỏng)'
+              : plan.status === 'dead_letter'
+                ? 'HTTP 401 Unauthorized: Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.PAYLOAD.SIGNATURE\n    at KiotClient.request (kv.ts:42)'
+                : null,
+          createdAt,
+          updatedAt,
+        },
+      });
+    }
+  }
+  // sync_reconciliation: T-1 KHỚP TUYỆT ĐỐI (mismatch=0), hôm nay cho phép lệch nhẹ do timing.
+  const reconObjects: { objectType: string; kv: number; crm: number }[] = [
+    { objectType: 'invoice', kv: await prisma.kvInvoice.count(), crm: await prisma.kvInvoice.count() },
+    { objectType: 'invoice_line', kv: await prisma.kvInvoiceLine.count(), crm: await prisma.kvInvoiceLine.count() },
+    { objectType: 'return', kv: await prisma.kvReturn.count(), crm: await prisma.kvReturn.count() },
+  ];
+  for (const r of reconObjects) {
+    await prisma.syncReconciliation.create({
+      data: { periodLabel: 'T-1', objectType: r.objectType, kvCount: r.kv, crmCount: r.crm, mismatch: 0 },
+    });
+    await prisma.syncReconciliation.create({
+      data: {
+        periodLabel: 'today',
+        objectType: r.objectType,
+        kvCount: r.kv + 2,
+        crmCount: r.crm,
+        mismatch: 2, // lệch do timing đồng bộ (chấp nhận trong kỳ hôm nay)
+        detail: { note: 'Lệch do sự kiện đang trên đường đồng bộ' } as never,
+      },
+    });
+  }
+  // api_credentials: đăng ký webhook (KHÔNG lưu secret thật — MVP để trống secretCipher).
+  await prisma.apiCredential.create({
+    data: {
+      provider: 'kiotviet',
+      meta: {
+        webhooks: [
+          { objectType: 'customer', status: 'active', registeredAt: daysBefore(30).toISOString() },
+          { objectType: 'product', status: 'active', registeredAt: daysBefore(30).toISOString() },
+          { objectType: 'invoice', status: 'active', registeredAt: daysBefore(30).toISOString() },
+          { objectType: 'return', status: 'inactive', registeredAt: null },
+        ],
+      } as never,
+    },
+  });
+
+  // ============================================================
   // Tổng kết
   // ============================================================
   const counts = {
@@ -871,6 +1079,10 @@ async function main() {
     organizations: await prisma.organization.count(),
     followUps: await prisma.followUp.count(),
     holdout: holdoutCustomerIds.size,
+    treatment: treatmentCustomerIds.size,
+    conversions: conversionCount,
+    syncEvents: await prisma.syncEvent.count(),
+    syncReconciliation: await prisma.syncReconciliation.count(),
   };
 
   console.log('\n================ SEED HOÀN TẤT (⚠️ Dữ liệu minh họa) ================');

@@ -36,6 +36,9 @@ export interface Permissions {
   handleAtRisk: boolean;
   /** Theo dõi đồng bộ/đối soát. */
   viewSync: boolean;
+  /** 🔴 §11.4: Dashboard đồng bộ KiotViet + hành động (retry/full-resync/webhook) + log kỹ thuật.
+   *  CHỈ chu_shop + tro_ly_du_lieu (marketing/cskh/crm_officer => 403). */
+  manageSync: boolean;
 }
 
 const FULL_SENSITIVE_ROLES: RoleKeyStr[] = ['chu_shop', 'crm_officer', 'cskh'];
@@ -62,6 +65,8 @@ export function permissionsFor(role: RoleKeyStr): Permissions {
     approveExport: isOwner,
     handleAtRisk: isOwner,
     viewSync: isOwner || role === 'crm_officer' || role === 'tro_ly_du_lieu',
+    // 🔴 §11.4: dashboard đồng bộ chỉ 2 vai — chu_shop + tro_ly_du_lieu.
+    manageSync: isOwner || role === 'tro_ly_du_lieu',
   };
 }
 

@@ -128,7 +128,7 @@ customersRouter.get(
   }),
 );
 
-// Tab tư vấn — ẩn toàn bộ nếu không có quyền
+// Tab tư vấn — ẩn toàn bộ nếu không có quyền (CON-09). Bổ sung §11.2: babyId, SP tư vấn, "đã sửa N lần".
 customersRouter.get(
   '/:id/consultations',
   requirePermission('viewConsultation'),
@@ -136,16 +136,21 @@ customersRouter.get(
     const items = await prisma.consultation.findMany({
       where: { customerId: String(req.params.id), deletedAt: null },
       orderBy: { createdAt: 'desc' },
-      include: { advisedProducts: true },
+      include: { advisedProducts: true, _count: { select: { versions: true } } },
     });
     res.json({
       items: items.map((c) => ({
         id: c.id,
+        babyId: c.babyId,
         issue: c.issue,
         temperature: c.temperature,
         result: c.result,
+        reasonNoBuy: c.reasonNoBuy,
+        advisedProductIds: c.advisedProducts.map((p) => p.kvProductId),
         nextContactDate: c.nextContactDate ? formatVnDate(c.nextContactDate) : null,
         note: c.note,
+        version: c.version, // 🔴 FIX-3: client cần version để gửi khóa lạc quan khi sửa
+        editedCount: c._count.versions, // CON-03: "đã sửa N lần"
         createdAt: formatVnDate(c.createdAt),
       })),
     });

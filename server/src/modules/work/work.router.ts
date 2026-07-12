@@ -7,6 +7,7 @@ import { formatVnDate, formatVnDateTime, vnToday } from '../../lib/datetime';
 import { maskPhone } from '../../security/masking';
 import { serializeBaby, serializeFollowUpContent } from '../../security/serialize';
 import { pickAgencyContact } from '../../engines/replenishment';
+import { serializeConfirmableBaby, workTargetIds } from './work.helpers';
 
 export const workRouter = Router();
 
@@ -77,6 +78,8 @@ workRouter.get(
       let phone: string | null = null;
       let phoneOf: string | null = null;
       let babies: unknown[] = [];
+      // §11.1: danh sách bé của khách để hành động "Xác nhận bé" (chỉ khi có quyền xem bé).
+      let confirmableBabies: { id: string; displayName: string }[] = [];
       let lastPurchaseAt: Date | null = null;
 
       if (f.targetType === 'customer' && f.customer) {
@@ -94,6 +97,10 @@ workRouter.get(
           babies = f.customer.babies
             .filter((b) => confirmedBabyIds.has(b.id))
             .map((b) => serializeBaby(b, perms, now));
+        }
+        // §11.1: toàn bộ bé của khách (id + tên hiển thị theo masking) để chọn khi "Xác nhận bé".
+        if (perms.viewBaby) {
+          confirmableBabies = f.customer.babies.map((b) => serializeConfirmableBaby(b, perms));
         }
         for (const e of f.customer.externalIdentities) {
           const lp = lastPurchaseByKv.get(e.externalCustomerId);
@@ -115,10 +122,14 @@ workRouter.get(
         lastPurchaseAt = f.organization.lastPurchaseAt;
       }
 
+      const ids = workTargetIds(f);
       return {
         id: f.id,
         targetType: f.targetType,
         reminderType: f.reminderType,
+        // §11.1: id đối tượng để SCR-02 gọi hành động inline (Xác nhận bé / Tạm dừng cảnh báo).
+        customerId: ids.customerId,
+        organizationId: ids.organizationId,
         targetName,
         phone,
         phoneOf,
@@ -139,6 +150,8 @@ workRouter.get(
           since: f.claimedAt ? formatVnDateTime(f.claimedAt) : null,
         },
         babies,
+        // §11.1: bé để chọn khi "Xác nhận bé" (suggested -> confirmed qua followups/:id/confirm-baby).
+        confirmableBabies,
         lastPurchaseAt: lastPurchaseAt ? formatVnDate(lastPurchaseAt) : null,
         canMentionBabyName: babies.length > 0,
       };

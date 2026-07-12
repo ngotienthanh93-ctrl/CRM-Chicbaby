@@ -12,6 +12,9 @@ import { authRouter } from './modules/auth/auth.router';
 import { workRouter } from './modules/work/work.router';
 import { followupsRouter } from './modules/followups/followups.router';
 import { customersRouter } from './modules/customers/customers.router';
+import { mergeRouter } from './modules/customers/merge.router';
+import { consultationsRouter } from './modules/consultations/consultations.router';
+import { syncRouter } from './modules/sync/sync.router';
 import { babiesRouter } from './modules/babies/babies.router';
 import { allocationsRouter } from './modules/allocations/allocations.router';
 import { organizationsRouter } from './modules/organizations/organizations.router';
@@ -69,6 +72,10 @@ export function createApp() {
   app.use('/api/auth', authRouter);
   app.use('/api/work', workRouter);
   app.use('/api/followups', followupsRouter);
+  app.use('/api/consultations', consultationsRouter);
+  app.use('/api/sync', syncRouter);
+  // 🔴 mergeRouter mount TRƯỚC customersRouter: /dedup-candidates & /merge/... phải khớp trước /:id.
+  app.use('/api/customers', mergeRouter);
   app.use('/api/customers', customersRouter);
   app.use('/api/babies', babiesRouter);
   app.use('/api/allocations', allocationsRouter);
