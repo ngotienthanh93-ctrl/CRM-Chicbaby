@@ -468,3 +468,160 @@
 .trend-flat {
   color: var(--c-neutral);
 }
+
+/* ============================================================================
+   GĐ2 — dùng chung: notice, chip, pick-list, bar chart, merge
+   ============================================================================ */
+
+/* Dấu bắt buộc */
+.req {
+  color: var(--c-danger);
+  font-weight: 700;
+}
+
+/* Notice (khối nhấn mạnh có tông) */
+.notice {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: flex-start;
+  padding: 10px var(--sp-3);
+  border-radius: var(--r-control);
+  border: 1px solid var(--c-border);
+  background: var(--c-neutral-weak);
+  color: #3f4653;
+}
+.notice svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+.notice-neutral {
+  background: var(--c-primary-weak);
+  border-color: #c5ddf7;
+  color: var(--c-primary-dark);
+}
+.notice-warning {
+  background: var(--c-attention-weak);
+  border-color: #ecdca0;
+  color: #7a5e00;
+}
+
+/* Chip (điền nhanh / mẫu / SP đã chọn) */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--c-border-strong);
+  background: var(--c-surface);
+  color: var(--c-text);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  min-height: 32px;
+}
+.chip:hover:not(:disabled) {
+  background: var(--c-neutral-weak);
+}
+.chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.chip-active {
+  background: var(--c-primary-weak);
+  border-color: #c5ddf7;
+  color: var(--c-primary-dark);
+}
+.chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  margin-left: 2px;
+}
+
+/* Danh sách chọn nhiều (SP tư vấn) */
+.pick-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-control);
+}
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 10px var(--sp-3);
+  border: none;
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface);
+  text-align: left;
+  width: 100%;
+  min-height: 44px;
+  font-size: var(--fs-small);
+}
+.pick-row:last-child {
+  border-bottom: none;
+}
+.pick-row:hover {
+  background: var(--c-bg);
+}
+.pick-row.selected {
+  background: var(--c-success-weak);
+}
+
+/* Bar chart ngang (lý do đại lý) */
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) 1fr 40px;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-small);
+}
+.bar-label {
+  color: var(--c-text);
+  font-weight: 600;
+}
+.bar-track {
+  position: relative;
+  height: 14px;
+  border-radius: var(--r-pill);
+  background: var(--c-neutral-weak);
+  overflow: hidden;
+}
+.bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--r-pill);
+  background: var(--c-primary);
+  min-width: 4px;
+}
+.bar-value {
+  text-align: right;
+  font-weight: 700;
+}
+
+/* Cặp khách nghi trùng (SCR-11) */
+.merge-parties {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+}
+.merge-party {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-3);
+  background: var(--c-bg);
+  border-radius: var(--r-control);
+  min-width: 0;
+}
+@media (max-width: 520px) {
+  .merge-parties {
+    grid-template-columns: 1fr;
+  }
+}

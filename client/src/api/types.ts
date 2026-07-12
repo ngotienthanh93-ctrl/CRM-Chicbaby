@@ -10,13 +10,19 @@ export interface Permissions {
   viewConsultation: boolean;
   manageCustomer: boolean;
   manageBaby: boolean;
+  /** Xử lý "Việc hôm nay" + mutation follow-up (chu_shop/crm_officer/cskh). */
+  processWork: boolean;
   viewOrganization: boolean;
+  /** Mutation hồ sơ đại lý (pause/stockout/decline) — chu_shop + crm_officer. */
+  manageOrganization: boolean;
   approveCycle: boolean;
   manageConfig: boolean;
   approveMerge: boolean;
   approveExport: boolean;
   handleAtRisk: boolean;
   viewSync: boolean;
+  /** Dashboard đồng bộ KiotViet + hành động — chỉ chu_shop + tro_ly_du_lieu. */
+  manageSync: boolean;
 }
 
 export interface AuthUser {
@@ -53,10 +59,19 @@ export interface WorkBadge {
   label: string;
 }
 
+/** Bé để chọn khi "Xác nhận bé" (id + tên hiển thị theo masking). §11.1 */
+export interface ConfirmableBaby {
+  id: string;
+  displayName: string;
+}
+
 export interface WorkCard {
   id: string;
   targetType: 'customer' | 'organization';
   reminderType: string;
+  // §11.1: id đối tượng để hành động inline (Xác nhận bé / Tạm dừng cảnh báo).
+  customerId: string | null;
+  organizationId: string | null;
   targetName: string;
   phone: string | null;
   phoneOf: string | null;
@@ -68,6 +83,8 @@ export interface WorkCard {
   badge: WorkBadge;
   claim: { state: string; by: string | null; since: string | null };
   babies: Baby[];
+  // §11.1: danh sách bé của khách để nâng suggested -> confirmed.
+  confirmableBabies: ConfirmableBaby[];
   lastPurchaseAt: string | null;
   canMentionBabyName: boolean;
 }
@@ -128,14 +145,65 @@ export interface CustomerDetail {
   masked: boolean;
 }
 
+// ---- SCR-06 Ghi chú tư vấn ----
+export type Temperature = 'nong' | 'am' | 'lanh';
+export type ConsultationResult = 'da_chot' | 'chua_chot' | 'tu_choi';
+
+/** Item trong danh sách tư vấn của khách (GET /api/customers/:id/consultations). */
 export interface Consultation {
   id: string;
+  babyId: string | null;
   issue: string;
   temperature: string | null;
   result: string | null;
+  reasonNoBuy: string | null;
+  advisedProductIds: string[];
   nextContactDate: string | null;
   note: string | null;
+  version: number; // 🔴 FIX-3: dùng để gửi khóa lạc quan khi sửa
+  editedCount: number;
   createdAt: string;
+}
+
+/** Chi tiết đầy đủ (GET/POST/PUT /api/consultations). */
+export interface ConsultationDetail {
+  id: string;
+  customerId: string;
+  babyId: string | null;
+  issue: string;
+  temperature: string | null;
+  result: string | null;
+  reasonNoBuy: string | null;
+  advisedProductIds: string[];
+  nextContactDate: string | null;
+  note: string | null;
+  version: number;
+  editedCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Kết quả tạo lịch hẹn gọi lại kèm khi tạo/sửa tư vấn (CON-04/05). */
+export interface AppointmentResult {
+  created: boolean;
+  reason: 'created' | 'duplicate_within_window' | 'no_date' | 'unchanged';
+  followUpId?: string;
+}
+
+/** Mẫu nhanh tư vấn (config key `consultation.quick_templates`). */
+export interface QuickTemplate {
+  group: string;
+  label: string;
+  issue: string;
+}
+
+export interface ConfigItem {
+  key: string;
+  value: unknown;
+  version: number;
+}
+export interface ConfigResponse {
+  items: ConfigItem[];
 }
 
 export interface PurchaseLine {
@@ -261,10 +329,165 @@ export interface DataQualityReport {
   allocationsNeedReview: number;
   babiesMissingAge: number;
   customersMissingConsent: number;
+  customersWithoutBaby: number;
+  allocationQuality: {
+    total: number;
+    confirmedPct: number;
+    suggestedUnconfirmedPct: number;
+    customerLevelPct: number;
+  };
+  note: string;
 }
 
 export interface UserRef {
   id: string;
   fullName: string;
   role: RoleKey;
+}
+
+// ---- SCR-11 Gộp khách (dedup + preview) ----
+export interface DedupParty {
+  id: string;
+  displayName: string;
+  phone: string | null;
+}
+export interface DedupPair {
+  a: DedupParty;
+  b: DedupParty;
+  score: number;
+  reasons: string[];
+}
+export interface DedupResponse {
+  threshold: number;
+  note: string;
+  masked: boolean;
+  items: DedupPair[];
+}
+
+export interface MergeFieldComparison {
+  field: string;
+  master: string | null;
+  merged: string | null;
+  resolution: string;
+}
+export interface CanonicalPhone {
+  phoneRaw: string;
+  phoneNormalized: string;
+  types: string[];
+  sources: string[];
+  isPrimary: boolean;
+}
+export interface ResolvedConsent {
+  consentKey: string;
+  subjectKey: string;
+  status: 'granted' | 'revoked';
+  at: string;
+}
+export interface MergePreview {
+  masterId: string;
+  mergedId: string;
+  fields: MergeFieldComparison[];
+  canonicalPhones: CanonicalPhone[];
+  consent: ResolvedConsent[];
+  kept: {
+    babies: number;
+    consultations: number;
+    kvCodes: number;
+    phones: number;
+    consentEvents: number;
+  };
+  babyMergeNote: string;
+  disclaimer: string;
+}
+
+// ---- SCR-12 Đồng bộ KiotViet ----
+export interface SyncStatusItem {
+  objectType: string;
+  label: string;
+  lastSyncAt: string | null;
+  recordCount: number;
+  errorCount: number;
+}
+export interface SyncStatusResponse {
+  items: SyncStatusItem[];
+}
+export interface SyncDeadLetter {
+  id: string;
+  objectType: string;
+  objectId: string | null;
+  attempts: number;
+  // 🔴 FIX-7 (SEC-10): lỗi ĐÃ scrub — KHÔNG chứa raw error/token/secret.
+  errorCode: string | null;
+  errorSummary: string | null;
+  at: string;
+}
+export interface SyncQueueResponse {
+  counts: Record<string, number>;
+  retryable: number;
+  deadLetterCount: number;
+  webhookLatencyP95Ms: number | null;
+  deadLetters: SyncDeadLetter[];
+}
+export interface SyncReconItem {
+  periodLabel: string;
+  objectType: string;
+  kvCount: number;
+  crmCount: number;
+  mismatch: number | null;
+  matched: boolean;
+  detail: { note?: string } | null;
+  at: string;
+}
+export interface SyncReconResponse {
+  note: string;
+  items: SyncReconItem[];
+}
+export interface SyncWebhookItem {
+  objectType: string;
+  status: string;
+  registeredAt: string | null;
+}
+export interface SyncWebhooksResponse {
+  registered: boolean;
+  webhooks: SyncWebhookItem[];
+}
+
+// ---- SCR-16 Báo cáo ----
+export type UpliftStatus = 'collecting' | 'insufficient' | 'reference' | 'confident';
+export interface UpliftResult {
+  status: UpliftStatus;
+  hasConclusion: boolean;
+  treatmentRate: number | null;
+  holdoutRate: number | null;
+  uplift: number | null;
+  ci95: { low: number; high: number } | null;
+  label: string;
+}
+export interface UpliftResponse {
+  experiment?: { id: string; name: string };
+  groups?: {
+    treatment: { n: number; conversions: number };
+    holdout: { n: number; conversions: number };
+  };
+  minSample?: { treatment: number; holdout: number };
+  note?: string;
+  result: UpliftResult | null;
+}
+export interface RepurchaseReport {
+  note: string;
+  totalConsumptionFollowUps: number;
+  repurchaseVerified: number;
+  attributedAfterReminder: number;
+  naturalRepurchase: number;
+  repurchaseVerifiedRatePct: number;
+  attributedRatePct: number;
+  byPeriod: { d30: number; d60: number; d90: number; over90: number };
+}
+export interface AgencyReasonItem {
+  declineReason: string | null;
+  count: number;
+}
+export interface AgencyReasonsReport {
+  note: string;
+  items: AgencyReasonItem[];
 }

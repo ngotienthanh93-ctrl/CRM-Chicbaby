@@ -15,6 +15,7 @@ import { useAuth } from '../app/AuthContext';
 import { useToast } from '../components/Toast';
 import { Badge, EmptyState, ErrorState, SkeletonCards } from '../components/ui';
 import { WorkActionSheet } from './work/WorkActionSheet';
+import { ConsultationModal } from './consultation/ConsultationModal';
 import { reminderTypeVi, workBadgeTone } from '../lib/labels';
 
 export function WorkTodayScreen() {
@@ -24,6 +25,8 @@ export function WorkTodayScreen() {
     [scope],
   );
   const [active, setActive] = useState<WorkCard | null>(null);
+  // §11.2: mở nhanh ghi chú tư vấn từ SCR-02 cho việc target=customer.
+  const [consultFor, setConsultFor] = useState<string | null>(null);
 
   return (
     <div>
@@ -70,6 +73,25 @@ export function WorkTodayScreen() {
           onClose={() => setActive(null)}
           onDone={() => {
             setActive(null);
+            state.reload();
+          }}
+          onOpenConsultation={
+            active.customerId
+              ? () => {
+                  setConsultFor(active.customerId);
+                  setActive(null);
+                }
+              : undefined
+          }
+        />
+      )}
+
+      {consultFor && (
+        <ConsultationModal
+          customerId={consultFor}
+          onClose={() => setConsultFor(null)}
+          onSaved={() => {
+            setConsultFor(null);
             state.reload();
           }}
         />

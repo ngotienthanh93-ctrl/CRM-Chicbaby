@@ -93,6 +93,29 @@ export const confidenceVi: Record<string, string> = {
   low: 'Tin cậy thấp',
 };
 
+// SCR-06 Tư vấn — "nhiệt độ" khách (CON-01: KHÔNG mặc định)
+export const temperatureVi: Record<string, string> = {
+  nong: 'Nóng (quan tâm cao)',
+  am: 'Ấm (đang cân nhắc)',
+  lanh: 'Lạnh (chưa quan tâm)',
+};
+export const temperatureTone: Record<string, Tone> = {
+  nong: 'danger',
+  am: 'warning',
+  lanh: 'neutral',
+};
+
+export const consultationResultVi: Record<string, string> = {
+  da_chot: 'Đã chốt',
+  chua_chot: 'Chưa chốt',
+  tu_choi: 'Từ chối',
+};
+export const consultationResultTone: Record<string, Tone> = {
+  da_chot: 'success',
+  chua_chot: 'attention',
+  tu_choi: 'neutral',
+};
+
 export const invoiceStatusVi: Record<string, string> = {
   completed: 'Hoàn tất',
   pending: 'Chờ xử lý',

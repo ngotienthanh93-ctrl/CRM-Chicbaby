@@ -8,6 +8,9 @@ import { Customer360Screen } from './screens/Customer360Screen';
 import { AllocationScreen } from './screens/AllocationScreen';
 import { OrganizationScreen } from './screens/OrganizationScreen';
 import { ProductConfigScreen } from './screens/ProductConfigScreen';
+import { ReportsScreen } from './screens/ReportsScreen';
+import { SyncScreen } from './screens/SyncScreen';
+import { MergeScreen } from './screens/MergeScreen';
 import type { Permissions } from './api/types';
 import type { ReactNode } from 'react';
 import { EmptyState } from './components/ui';
@@ -75,6 +78,30 @@ export function App() {
           element={
             <Guard allow={(p) => p.viewOrganization}>
               <OrganizationScreen />
+            </Guard>
+          }
+        />
+        <Route
+          path="/bao-cao"
+          element={
+            <Guard allow={(p) => p.viewBaby}>
+              <ReportsScreen />
+            </Guard>
+          }
+        />
+        <Route
+          path="/dong-bo"
+          element={
+            <Guard allow={(p) => p.manageSync}>
+              <SyncScreen />
+            </Guard>
+          }
+        />
+        <Route
+          path="/gop-khach"
+          element={
+            <Guard allow={(p) => p.approveMerge}>
+              <MergeScreen />
             </Guard>
           }
         />

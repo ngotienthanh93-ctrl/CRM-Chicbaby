@@ -4,6 +4,8 @@ import {
   ListTodo,
   Settings,
   Users,
+  RefreshCw,
+  BarChart3,
   type LucideIcon,
 } from 'lucide-react';
 import type { Permissions } from '../api/types';
@@ -47,6 +49,22 @@ export const NAV_ITEMS: NavItem[] = [
     shortLabel: 'Đại lý',
     icon: Building2,
     visible: (p) => p.viewOrganization,
+  },
+  {
+    path: '/bao-cao',
+    label: 'Báo cáo',
+    shortLabel: 'Báo cáo',
+    icon: BarChart3,
+    // §11.5: chu_shop + crm_officer + cskh (đều có viewBaby). Marketing & trợ lý dữ liệu KHÔNG thấy.
+    visible: (p) => p.viewBaby,
+  },
+  {
+    path: '/dong-bo',
+    label: 'Đồng bộ KiotViet',
+    shortLabel: 'Đồng bộ',
+    icon: RefreshCw,
+    // §11.4: chỉ chu_shop + trợ lý dữ liệu (manageSync). Server cũng chặn 403.
+    visible: (p) => p.manageSync,
   },
   {
     path: '/cau-hinh',

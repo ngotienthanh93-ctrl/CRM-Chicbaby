@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Phone, Eye, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Phone, Eye, ShieldCheck, Plus, Pencil, MessageSquarePlus } from 'lucide-react';
 import { api } from '../api/client';
 import type {
   Consultation,
@@ -16,11 +16,16 @@ import {
   assignmentStatusVi,
   consentStatusVi,
   consentTypeVi,
+  consultationResultTone,
+  consultationResultVi,
   invoiceStatusVi,
   reminderTypeVi,
+  temperatureTone,
+  temperatureVi,
   vnd,
 } from '../lib/labels';
 import { BabyTab } from './customer/BabyTab';
+import { ConsultationModal } from './consultation/ConsultationModal';
 
 type TabKey = 'info' | 'babies' | 'consultations' | 'purchases' | 'care' | 'consent';
 
@@ -227,27 +232,105 @@ function InfoTab({ detail }: { detail: CustomerDetail }) {
 }
 
 function ConsultationsTab({ customerId }: { customerId: string }) {
+  const { permissions } = useAuth();
+  const canManage = permissions?.manageBaby ?? false;
   const state = useApi<{ items: Consultation[] }>(
     () => api.get(`/api/customers/${customerId}/consultations`),
     [customerId],
   );
-  if (state.status === 'loading') return <SkeletonCards count={2} />;
-  if (state.status === 'error') return <ErrorState error={state.error} onRetry={state.reload} />;
-  if (state.data.items.length === 0)
-    return <EmptyState title="Chưa có buổi tư vấn nào" hint="Tư vấn sẽ hiển thị tại đây." />;
+  // 'new' để tạo mới; object Consultation để sửa.
+  const [editing, setEditing] = useState<Consultation | 'new' | null>(null);
+
   return (
-    <div className="stack">
-      {state.data.items.map((c) => (
-        <div key={c.id} className="card card-pad stack-2">
-          <div className="between">
-            <b>{c.issue}</b>
-            <span className="caption">{c.createdAt}</span>
-          </div>
-          {c.result && <Badge tone="neutral" icon={false}>{c.result}</Badge>}
-          {c.note && <p className="small wrap-anywhere">{c.note}</p>}
-          {c.nextContactDate && <span className="caption">Hẹn liên hệ lại: {c.nextContactDate}</span>}
+    <div className="stack-4">
+      {canManage && (
+        <div className="between">
+          <h3 className="h3">Ghi chú tư vấn</h3>
+          <button className="btn btn-primary btn-sm" onClick={() => setEditing('new')}>
+            <MessageSquarePlus size={16} aria-hidden />
+            Ghi tư vấn
+          </button>
         </div>
-      ))}
+      )}
+
+      {state.status === 'loading' && <SkeletonCards count={2} />}
+      {state.status === 'error' && <ErrorState error={state.error} onRetry={state.reload} />}
+      {state.status === 'success' &&
+        (state.data.items.length === 0 ? (
+          <EmptyState
+            title="Chưa có buổi tư vấn nào"
+            hint="Ghi lại vấn đề của khách/bé và sản phẩm đã tư vấn."
+            action={
+              canManage ? (
+                <button className="btn btn-primary" onClick={() => setEditing('new')}>
+                  <Plus size={16} aria-hidden />
+                  Ghi tư vấn đầu tiên
+                </button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <div className="stack">
+            {state.data.items.map((c) => (
+              <div key={c.id} className="card card-pad stack-2">
+                <div className="between">
+                  <b className="wrap-anywhere">{c.issue}</b>
+                  <span className="row" style={{ gap: 8 }}>
+                    <span className="caption">{c.createdAt}</span>
+                    {canManage && (
+                      <button
+                        className="btn btn-ghost btn-icon"
+                        aria-label="Sửa tư vấn"
+                        onClick={() => setEditing(c)}
+                      >
+                        <Pencil size={15} aria-hidden />
+                      </button>
+                    )}
+                  </span>
+                </div>
+                <div className="row-wrap" style={{ gap: 6 }}>
+                  {c.temperature && (
+                    <Badge tone={temperatureTone[c.temperature] ?? 'neutral'} icon={false}>
+                      {temperatureVi[c.temperature] ?? c.temperature}
+                    </Badge>
+                  )}
+                  {c.result && (
+                    <Badge tone={consultationResultTone[c.result] ?? 'neutral'} icon={false}>
+                      {consultationResultVi[c.result] ?? c.result}
+                    </Badge>
+                  )}
+                  {c.advisedProductIds.length > 0 && (
+                    <Badge tone="primary" icon={false}>
+                      {c.advisedProductIds.length} SP đã tư vấn
+                    </Badge>
+                  )}
+                  {c.editedCount > 0 && (
+                    <Badge tone="neutral" icon={false}>Đã sửa {c.editedCount} lần</Badge>
+                  )}
+                </div>
+                {c.reasonNoBuy && (
+                  <p className="small muted wrap-anywhere">Lý do chưa mua: {c.reasonNoBuy}</p>
+                )}
+                {c.note && <p className="small wrap-anywhere">{c.note}</p>}
+                {c.nextContactDate && (
+                  <span className="caption">Hẹn liên hệ lại: {c.nextContactDate}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        ))}
+
+      {editing && (
+        <ConsultationModal
+          customerId={customerId}
+          existing={editing === 'new' ? null : editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            state.reload();
+          }}
+        />
+      )}
     </div>
   );
 }

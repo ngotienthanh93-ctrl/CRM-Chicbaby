@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Search, Phone, Baby as BabyIcon, Link2 } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Search, Phone, Baby as BabyIcon, Link2, GitMerge } from 'lucide-react';
 import { api } from '../api/client';
-import type { CustomerListResponse, CustomerSummary } from '../api/types';
+import type { CustomerListResponse, CustomerSummary, DedupResponse } from '../api/types';
 import { useApi } from '../hooks/useApi';
+import { useAuth } from '../app/AuthContext';
 import { Badge, EmptyState, ErrorState, KvBadge, SkeletonTable } from '../components/ui';
 
 export function CustomerListScreen() {
@@ -38,6 +39,7 @@ export function CustomerListScreen() {
           <h1 className="h1">Khách hàng</h1>
           <p className="small muted">Tìm và mở hồ sơ 360 của khách lẻ / đại lý.</p>
         </div>
+        <MergeEntry />
       </div>
 
       <form className="toolbar" onSubmit={submit}>
@@ -78,6 +80,24 @@ export function CustomerListScreen() {
           <CustomerTable items={state.data.items} />
         ))}
     </div>
+  );
+}
+
+/** Badge "khách nghi trùng" → màn Gộp (chỉ chủ shop — approveMerge). */
+function MergeEntry() {
+  const { permissions } = useAuth();
+  const canMerge = permissions?.approveMerge ?? false;
+  const state = useApi<DedupResponse>(
+    () => (canMerge ? api.get('/api/customers/dedup-candidates') : Promise.resolve({ threshold: 0, note: '', masked: false, items: [] })),
+    [canMerge],
+  );
+  if (!canMerge) return null;
+  const count = state.status === 'success' ? state.data.items.length : null;
+  return (
+    <Link className="btn btn-outline btn-sm" to="/gop-khach">
+      <GitMerge size={15} aria-hidden />
+      {count != null && count > 0 ? `${count} cặp khách nghi trùng` : 'Gộp khách nghi trùng'}
+    </Link>
   );
 }
 
