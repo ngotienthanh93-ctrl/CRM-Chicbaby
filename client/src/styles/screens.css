@@ -1,0 +1,470 @@
+/* ============================================================================
+   SCR-01 Đăng nhập
+   ============================================================================ */
+.login-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-4);
+  background: linear-gradient(180deg, #eef4fc 0%, var(--c-bg) 60%);
+}
+.login-card {
+  width: min(400px, 100%);
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-1);
+}
+.input-with-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.input-with-btn .input {
+  padding-right: 48px;
+}
+.input-with-btn .btn-icon {
+  position: absolute;
+  right: 4px;
+}
+.login-error {
+  padding: 10px var(--sp-3);
+  border-radius: var(--r-control);
+  background: var(--c-danger-weak);
+  color: #a72020;
+  border: 1px solid #f5c9c9;
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.login-hint {
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* ============================================================================
+   KPI bar (SCR-02)
+   ============================================================================ */
+.kpi-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-3);
+}
+.kpi {
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.kpi-value {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.kpi-label {
+  font-size: var(--fs-small);
+  color: var(--c-text-muted);
+  font-weight: 600;
+}
+.kpi.kpi-danger {
+  border-left: 3px solid var(--c-danger);
+}
+.kpi.kpi-warning {
+  border-left: 3px solid var(--c-warning);
+}
+.kpi.kpi-primary {
+  border-left: 3px solid var(--c-primary);
+}
+.kpi.kpi-success {
+  border-left: 3px solid var(--c-success);
+}
+@media (max-width: 640px) {
+  .kpi-bar {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--sp-2);
+  }
+  .kpi-value {
+    font-size: 22px;
+  }
+}
+
+/* ============================================================================
+   Work card (SCR-02)
+   ============================================================================ */
+.work-card {
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  border-left: 4px solid var(--c-border);
+}
+.work-card.lvl-at_risk {
+  border-left-color: var(--c-danger);
+}
+.work-card.lvl-agency {
+  border-left-color: var(--c-primary);
+}
+.work-card.lvl-confirmed {
+  border-left-color: var(--c-success);
+}
+.work-card.lvl-suggested {
+  border-left-color: var(--c-attention);
+}
+.work-card.lvl-customer_level {
+  border-left-color: var(--c-neutral);
+}
+.work-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.work-name {
+  font-size: var(--fs-h3);
+  font-weight: 700;
+}
+.work-content {
+  background: var(--c-bg);
+  border-radius: var(--r-control);
+  padding: var(--sp-3);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+}
+.work-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-4);
+  font-size: var(--fs-small);
+  color: var(--c-text-muted);
+}
+.work-meta b {
+  color: var(--c-text);
+  font-weight: 600;
+}
+.work-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.phone-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-num);
+  font-weight: 600;
+}
+.claim-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--c-warning);
+  font-weight: 600;
+  font-size: var(--fs-small);
+}
+
+/* ============================================================================
+   Toolbar / filters
+   ============================================================================ */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: center;
+  margin-bottom: var(--sp-4);
+}
+.search-box {
+  position: relative;
+  flex: 1 1 260px;
+  min-width: 200px;
+}
+.search-box .input {
+  padding-left: 40px;
+}
+.search-box .search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--c-text-muted);
+  pointer-events: none;
+}
+
+/* ============================================================================
+   List rows (customers)
+   ============================================================================ */
+.list-card {
+  overflow: hidden;
+}
+.list-scroll {
+  overflow-x: auto;
+}
+.cust-cards {
+  display: none;
+}
+@media (max-width: 720px) {
+  .list-scroll {
+    display: none;
+  }
+  .cust-cards {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+  }
+}
+.cust-card {
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cust-card-name {
+  font-weight: 700;
+  font-size: var(--fs-h3);
+}
+.link-row {
+  cursor: pointer;
+}
+.link-name {
+  color: var(--c-primary);
+  font-weight: 600;
+}
+
+/* ============================================================================
+   Detail header (SCR-04 / SCR-09)
+   ============================================================================ */
+.detail-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.detail-title {
+  font-size: var(--fs-h1);
+  font-weight: 700;
+}
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--sp-3);
+}
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.info-item .label {
+  color: var(--c-text-muted);
+  font-weight: 600;
+  font-size: var(--fs-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.info-item .value {
+  font-size: var(--fs-body);
+}
+
+.tab-panel {
+  padding-top: var(--sp-4);
+}
+
+/* KV read-only field */
+.kv-field {
+  background: var(--c-kv-bg);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-control);
+  padding: 10px var(--sp-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+/* ============================================================================
+   Baby card (SCR-05)
+   ============================================================================ */
+.baby-card {
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.baby-age {
+  font-family: var(--font-num);
+  font-weight: 700;
+  font-size: var(--fs-h3);
+}
+.disclaimer {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: flex-start;
+  padding: 10px var(--sp-3);
+  background: var(--c-attention-weak);
+  border: 1px solid #ecdca0;
+  border-radius: var(--r-control);
+  font-size: var(--fs-small);
+  color: #7a5e00;
+}
+
+/* ============================================================================
+   SCR-07 Phân bổ bé
+   ============================================================================ */
+.alloc-group {
+  overflow: hidden;
+}
+.alloc-group-head {
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--c-bg);
+  border-bottom: 1px solid var(--c-border);
+  font-weight: 700;
+}
+.alloc-line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--c-border);
+  flex-wrap: wrap;
+}
+.alloc-line:last-child {
+  border-bottom: none;
+}
+.alloc-line.active {
+  background: var(--c-primary-weak);
+  box-shadow: inset 3px 0 0 var(--c-primary);
+}
+.alloc-line-main {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.alloc-prod {
+  font-weight: 600;
+}
+.alloc-sub {
+  font-size: var(--fs-small);
+  color: var(--c-text-muted);
+}
+.alloc-actions {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+/* Nút "ĐÚNG" to nhất */
+.btn-confirm {
+  min-height: 48px;
+  font-size: var(--fs-h3);
+  padding: 0 var(--sp-5);
+  background: var(--c-success);
+  color: #fff;
+  font-weight: 700;
+}
+.btn-confirm:hover {
+  filter: brightness(0.95);
+}
+.keyhint-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  padding: var(--sp-2) var(--sp-4);
+  font-size: var(--fs-small);
+  color: var(--c-text-muted);
+  align-items: center;
+}
+.keyhint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.preview-line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--c-border);
+  font-size: var(--fs-small);
+}
+
+/* Baby picker */
+.baby-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.baby-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: 10px var(--sp-3);
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-control);
+  background: var(--c-surface);
+  min-height: 48px;
+  text-align: left;
+  width: 100%;
+}
+.baby-option.selected {
+  border-color: var(--c-primary);
+  background: var(--c-primary-weak);
+}
+
+/* ============================================================================
+   SCR-08 Products config
+   ============================================================================ */
+.cell-num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+.cell-input {
+  width: 88px;
+  min-height: 38px;
+  padding: 6px 8px;
+}
+.needs-approval-row td {
+  background: var(--c-warning-weak);
+}
+
+/* Data-quality strip */
+.dq-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+/* Health metrics (SCR-09) */
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-3);
+  background: var(--c-bg);
+  border-radius: var(--r-control);
+}
+.metric-value {
+  font-family: var(--font-num);
+  font-weight: 700;
+  font-size: var(--fs-h3);
+}
+.trend-up {
+  color: var(--c-success);
+}
+.trend-down {
+  color: var(--c-danger);
+}
+.trend-flat {
+  color: var(--c-neutral);
+}
