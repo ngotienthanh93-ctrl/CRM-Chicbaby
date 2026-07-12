@@ -6,6 +6,7 @@ import {
   Users,
   RefreshCw,
   BarChart3,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
 import type { Permissions } from '../api/types';
@@ -73,6 +74,14 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Settings,
     // Ẩn với Marketing; hiển thị cho vai có xem đại lý hoặc theo dõi đồng bộ.
     visible: (p) => p.viewOrganization || p.viewSync,
+  },
+  {
+    path: '/quan-tri',
+    label: 'Quản trị',
+    shortLabel: 'Quản trị',
+    icon: ShieldCheck,
+    // §12.1: chỉ Chủ shop/Quản trị (manageUsers). Server cũng chặn 403.
+    visible: (p) => p.manageUsers,
   },
 ];
 

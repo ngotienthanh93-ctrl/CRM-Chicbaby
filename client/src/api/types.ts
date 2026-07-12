@@ -23,6 +23,8 @@ export interface Permissions {
   viewSync: boolean;
   /** Dashboard đồng bộ KiotViet + hành động — chỉ chu_shop + tro_ly_du_lieu. */
   manageSync: boolean;
+  /** SCR-13: quản trị người dùng & phân quyền — chỉ chu_shop. */
+  manageUsers: boolean;
 }
 
 export interface AuthUser {
@@ -490,4 +492,117 @@ export interface AgencyReasonItem {
 export interface AgencyReasonsReport {
   note: string;
   items: AgencyReasonItem[];
+}
+
+// ---- SCR-13 Quản trị người dùng & phân quyền ----
+export type FieldLevel = 'full' | 'masked' | 'hidden';
+export type UserStatus = 'active' | 'disabled';
+
+/** Một người dùng trong danh sách quản trị (GET /api/admin/users). KHÔNG chứa passwordHash. */
+export interface AdminUser {
+  id: string;
+  username: string;
+  fullName: string;
+  roleKey: RoleKey;
+  status: UserStatus;
+  lastLoginAt: string | null;
+  activeSessionCount: number;
+  createdAt: string;
+}
+export interface AdminUsersResponse {
+  items: AdminUser[];
+}
+
+/** Kết quả tạo user (POST /api/admin/users). */
+export interface CreatedUser {
+  id: string;
+  username: string;
+  fullName: string;
+  roleKey: RoleKey;
+  status: UserStatus;
+}
+
+/** Mức quyền cho từng trường nhạy cảm của một vai. */
+export interface SensitiveFields {
+  phone: FieldLevel;
+  address: FieldLevel;
+  baby: FieldLevel;
+  consultation: FieldLevel;
+  debt: FieldLevel;
+  exportAllowed: boolean;
+}
+
+/** Một hàng trong ma trận quyền (GET /api/admin/roles). `flags`/`defaultFlags` là Permissions serialize. */
+export interface RoleMatrixRow {
+  role: RoleKey;
+  /** true với chu_shop — vai khóa cứng, không chỉnh được. */
+  locked: boolean;
+  flags: Permissions;
+  defaultFlags: Permissions;
+  fields: SensitiveFields;
+  defaultFields: SensitiveFields;
+}
+export interface RoleMatrix {
+  key: string;
+  /** Cờ nghiệp vụ được override (checkbox). */
+  overridableFlags: string[];
+  /** Cờ quản trị khóa cứng (read-only). */
+  lockedFlags: string[];
+  fieldKeys: string[];
+  fieldLevels: FieldLevel[];
+  rows: RoleMatrixRow[];
+}
+
+/** Override gửi lên khi lưu ma trận (PUT /api/admin/roles). */
+export interface RoleFieldOverride {
+  phone?: FieldLevel;
+  address?: FieldLevel;
+  baby?: FieldLevel;
+  consultation?: FieldLevel;
+  debt?: FieldLevel;
+  exportAllowed?: boolean;
+}
+export interface RoleOverridePayload {
+  flags?: Record<string, boolean>;
+  fields?: RoleFieldOverride;
+}
+
+/** Phiên đăng nhập đang hoạt động (GET /api/admin/users/:id/sessions). */
+export interface AdminSession {
+  id: string;
+  device: string | null;
+  ip: string | null;
+  lastSeenAt: string;
+  createdAt: string;
+}
+export interface AdminTrustedDevice {
+  id: string;
+  deviceLabel: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+}
+export interface AdminSessionsResponse {
+  sessions: AdminSession[];
+  trustedDevices: AdminTrustedDevice[];
+}
+
+/** Một dòng nhật ký hoạt động (GET /api/admin/audit-logs). Giá trị nhạy cảm đã MASK/scrub từ server. */
+export interface AuditLogItem {
+  id: string;
+  userId: string | null;
+  actorUsername: string | null;
+  actorFullName: string | null;
+  action: string;
+  objectType: string;
+  objectId: string | null;
+  oldValue: unknown;
+  newValue: unknown;
+  reason: string | null;
+  ip: string | null;
+  device: string | null;
+  createdAt: string;
+}
+export interface AuditLogsResponse {
+  limit: number;
+  items: AuditLogItem[];
 }

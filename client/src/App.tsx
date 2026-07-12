@@ -11,6 +11,7 @@ import { ProductConfigScreen } from './screens/ProductConfigScreen';
 import { ReportsScreen } from './screens/ReportsScreen';
 import { SyncScreen } from './screens/SyncScreen';
 import { MergeScreen } from './screens/MergeScreen';
+import { AdminScreen } from './screens/AdminScreen';
 import type { Permissions } from './api/types';
 import type { ReactNode } from 'react';
 import { EmptyState } from './components/ui';
@@ -110,6 +111,14 @@ export function App() {
           element={
             <Guard allow={(p) => p.viewOrganization || p.viewSync}>
               <ProductConfigScreen />
+            </Guard>
+          }
+        />
+        <Route
+          path="/quan-tri"
+          element={
+            <Guard allow={(p) => p.manageUsers}>
+              <AdminScreen />
             </Guard>
           }
         />
