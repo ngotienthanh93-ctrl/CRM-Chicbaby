@@ -60,4 +60,5 @@ Quy trình đã chứng minh hiệu quả cho dự án này:
 ## 8. Cách RESUME ở phiên sau
 - Mở thư mục `~/Projects/CRM - Chicbaby/dự án CRM` trong Claude Code.
 - Bộ nhớ dự án tự nạp (Claude tự nhớ). Nếu cần, chỉ cần nói: **"đọc docs/HANDOFF.md rồi tiếp tục dự án CRM Chicbaby"**.
-- Kiểm nhanh: `git branch` (đang ở đâu?) · `git status` (GĐ2 đã commit chưa?) · `docker compose up -d` · `npm run dev`.
+- Kiểm nhanh: `git branch` (đang ở `feature/mvp-phase3`) · `git status` (sạch — GĐ3 đã commit+push) · `docker compose up -d` · `npm run dev` → http://localhost:5173, login `chushop / chicbaby@123`.
+- Việc tiếp: build **SCR-14** (cấu hình hệ thống) + **SCR-15** (holdout) — 2 màn quản trị còn lại (spec §12.2/§12.3). Xem §7.
