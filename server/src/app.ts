@@ -21,6 +21,7 @@ import { organizationsRouter } from './modules/organizations/organizations.route
 import { productsRouter } from './modules/products/products.router';
 import { configRouter } from './modules/config/config.router';
 import { reportsRouter } from './modules/reports/reports.router';
+import { adminRouter } from './modules/admin/admin.router';
 
 export function createApp() {
   const app = express();
@@ -83,6 +84,7 @@ export function createApp() {
   app.use('/api/products', productsRouter);
   app.use('/api/config', configRouter);
   app.use('/api/reports', reportsRouter);
+  app.use('/api/admin', adminRouter);
 
   // 404 + error handler (đặt cuối)
   app.use(notFoundHandler);

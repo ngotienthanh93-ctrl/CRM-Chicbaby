@@ -1,6 +1,10 @@
 // Ghi audit_logs APPEND-ONLY (SEC-12). Dữ liệu nhạy cảm trong log phải được MASK/scrub.
 // Log KHÔNG chứa SĐT/tên bé/secret/token/OTP (SEC-10/12).
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
+
+/** Client ghi được: PrismaClient thường HOẶC transaction client (để audit nằm TRONG cùng transaction). */
+type AuditClient = Pick<Prisma.TransactionClient, 'auditLog'>;
 
 const SENSITIVE_KEYS = [
   'password',
@@ -49,8 +53,12 @@ export interface AuditInput {
   device?: string | null;
 }
 
-export async function writeAudit(input: AuditInput): Promise<void> {
-  await prisma.auditLog.create({
+/**
+ * Ghi audit. Truyền `client` = transaction client để audit nằm TRONG cùng transaction với mutation
+ * (đảm bảo mutation nhạy cảm + audit cùng commit/rollback — không có mutation "mồ côi" không audit).
+ */
+export async function writeAudit(input: AuditInput, client: AuditClient = prisma): Promise<void> {
+  await client.auditLog.create({
     data: {
       userId: input.userId ?? null,
       action: input.action,

@@ -3,8 +3,9 @@ import { z } from 'zod';
 import { env } from '../../lib/env';
 import { asyncHandler, badRequest, tooManyRequests, unauthorized } from '../../lib/http';
 import { requireAuth } from '../../middleware/auth';
-import { permissionsFor } from '../../security/permissions';
+import { getEffectivePermissions } from '../../security/rolePermissions';
 import { writeAudit } from '../../security/audit';
+import { verifyReauth } from '../../security/reauth';
 import { SESSION_COOKIE, login, revokeSession } from './session.service';
 import { loginThrottle, throttleKey } from './login-throttle';
 
@@ -81,7 +82,8 @@ authRouter.post(
         fullName: result.user.fullName,
         role: result.user.role,
       },
-      permissions: permissionsFor(result.user.role),
+      // 🔴 §12.1: quyền HIỆU LỰC (đã áp override ma trận quyền versioned).
+      permissions: await getEffectivePermissions(result.user.role),
     });
   }),
 );
@@ -108,7 +110,30 @@ authRouter.get(
         fullName: auth.fullName,
         role: auth.role,
       },
+      // req.permissions do requireAuth gắn = quyền HIỆU LỰC (getEffectivePermissions).
       permissions: req.permissions,
     });
+  }),
+);
+
+// 🔴 §12.1 (AUTH-12): xác minh LẠI mật khẩu cho thao tác nhạy cảm (dùng chung cho SCR-13).
+const reauthSchema = z.object({ password: z.string().min(1) });
+authRouter.post(
+  '/reauth',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const parsed = reauthSchema.safeParse(req.body);
+    if (!parsed.success) throw badRequest('Thiếu mật khẩu xác minh.');
+    // 🔴 CWE-307: reauth có chống brute-force (khóa theo userId+IP, audit lần sai). Sai => 403/429.
+    await verifyReauth(req.auth!.userId, parsed.data.password, req.ip);
+    // audit tự scrub 'password' — không log mật khẩu.
+    await writeAudit({
+      userId: req.auth!.userId,
+      action: 'auth.reauth',
+      objectType: 'user',
+      objectId: req.auth!.userId,
+      ip: req.ip,
+    });
+    res.json({ ok: true });
   }),
 );

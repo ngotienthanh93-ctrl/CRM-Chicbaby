@@ -75,6 +75,7 @@ async function clearAll() {
   await prisma.configurationChangeLog.deleteMany();
   await prisma.configurationVersion.deleteMany();
   await prisma.consentType.deleteMany();
+  await prisma.trustedDevice.deleteMany();
   await prisma.session.deleteMany();
   await prisma.user.deleteMany();
   await prisma.role.deleteMany();
@@ -195,6 +196,30 @@ async function main() {
   const ownerId = userIdByUsername.get('chushop')!;
   const crmId = userIdByUsername.get('crm')!;
   const cskhId = userIdByUsername.get('cskh')!;
+
+  // ---- Thiết bị tin cậy (⚠️ Dữ liệu minh họa — cho tab Thiết bị của SCR-13) ----
+  await prisma.trustedDevice.createMany({
+    data: [
+      {
+        userId: ownerId,
+        deviceLabel: 'iPhone của Chị Chủ Shop (Dữ liệu minh họa)',
+        fingerprint: 'demo-fp-owner-iphone',
+        lastUsedAt: new Date(),
+      },
+      {
+        userId: ownerId,
+        deviceLabel: 'MacBook văn phòng (Dữ liệu minh họa)',
+        fingerprint: 'demo-fp-owner-macbook',
+        lastUsedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      },
+      {
+        userId: crmId,
+        deviceLabel: 'Máy bàn CRM (Dữ liệu minh họa)',
+        fingerprint: 'demo-fp-crm-desktop',
+        lastUsedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      },
+    ],
+  });
 
   // ---- Consent types ----
   const CONSENTS = [

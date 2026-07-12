@@ -4,10 +4,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma';
-import { asyncHandler, badRequest, forbidden, notFound } from '../../lib/http';
+import { asyncHandler, badRequest, notFound } from '../../lib/http';
 import { requireAuth, requirePermission, requireRole } from '../../middleware/auth';
 import { writeAudit } from '../../security/audit';
-import { verifyCurrentPassword } from '../../security/reauth';
+import { verifyReauth } from '../../security/reauth';
 import { formatVnDateTime } from '../../lib/datetime';
 import { scrubSyncError } from './sync.helpers';
 
@@ -173,8 +173,8 @@ syncRouter.post(
   asyncHandler(async (req, res) => {
     const parsed = fullResyncSchema.safeParse(req.body);
     if (!parsed.success) throw badRequest('Cần xác nhận + nhập lại mật khẩu để chạy đồng bộ toàn bộ.');
-    const ok = await verifyCurrentPassword(req.auth!.userId, parsed.data.password);
-    if (!ok) throw forbidden('Mật khẩu xác minh không đúng.');
+    // 🔴 reauth có chống brute-force (CWE-307: khóa userId+IP, audit lần sai).
+    await verifyReauth(req.auth!.userId, parsed.data.password, req.ip);
 
     const now = new Date();
     // MVP: đặt lại cursor + mốc để mô phỏng khởi động resync (worker thật sẽ hook sau). KHÔNG động dữ liệu CRM.

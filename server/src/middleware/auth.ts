@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { asyncHandler, forbidden, unauthorized } from '../lib/http';
-import { permissionsFor, type Permissions, type RoleKeyStr } from '../security/permissions';
+import type { Permissions, RoleKeyStr } from '../security/permissions';
+import { getEffectivePermissions } from '../security/rolePermissions';
 import { SESSION_COOKIE, validateSession } from '../modules/auth/session.service';
 
 /** Bắt buộc đăng nhập. Gắn req.auth + req.permissions. Chặn server-side (SEC-05). */
@@ -10,7 +11,8 @@ export const requireAuth = asyncHandler(
     const user = await validateSession(token);
     if (!user) throw unauthorized();
     req.auth = user;
-    req.permissions = permissionsFor(user.role);
+    // 🔴 §12.1: quyền HIỆU LỰC (code-default phủ bởi override ma trận quyền, versioned) — áp thật ở mọi request.
+    req.permissions = await getEffectivePermissions(user.role);
     next();
   },
 );

@@ -4,11 +4,11 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
-import { asyncHandler, badRequest, conflict, forbidden, notFound } from '../../lib/http';
+import { asyncHandler, badRequest, conflict, notFound } from '../../lib/http';
 import { requireAuth, requirePermission } from '../../middleware/auth';
 import { writeAudit } from '../../security/audit';
 import { maskPhone } from '../../security/masking';
-import { verifyCurrentPassword } from '../../security/reauth';
+import { verifyReauth } from '../../security/reauth';
 import { formatVnDateTime } from '../../lib/datetime';
 import { DEFAULT_ENGINE_CONFIG } from '../../lib/config';
 import { scoreDedupPair, type MergeCandidateCustomer } from '../../engines/dedup';
@@ -164,9 +164,8 @@ mergeRouter.post(
     if (!parsed.success) throw badRequest('Thiếu thông tin gộp hoặc mật khẩu xác minh.');
     if (parsed.data.masterId === parsed.data.mergedId)
       throw badRequest('Không thể gộp một khách với chính nó.');
-    // 🔴 xác minh lại mật khẩu chủ shop.
-    const ok = await verifyCurrentPassword(req.auth!.userId, parsed.data.password);
-    if (!ok) throw forbidden('Mật khẩu xác minh không đúng.');
+    // 🔴 xác minh lại mật khẩu chủ shop — CÓ chống brute-force (CWE-307: khóa userId+IP, audit lần sai).
+    await verifyReauth(req.auth!.userId, parsed.data.password, req.ip);
 
     const { masterId, mergedId } = parsed.data;
     const now = new Date();
