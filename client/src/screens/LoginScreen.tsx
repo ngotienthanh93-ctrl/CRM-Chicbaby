@@ -90,7 +90,7 @@ export function LoginScreen() {
               <BabyIcon size={22} />
             </span>
             <div>
-              <div className="h2">CRM Chicbaby</div>
+              <div className="h2">Chic Babyshop CRM</div>
               <div className="small muted">Hôm nay tôi gọi ai, nói gì?</div>
             </div>
           </div>

@@ -6,7 +6,11 @@
   display: grid;
   place-items: center;
   padding: var(--sp-4);
-  background: linear-gradient(180deg, #eef4fc 0%, var(--c-bg) 60%);
+  background: radial-gradient(
+    1200px 600px at 70% -10%,
+    #fbefcf 0%,
+    var(--c-bg) 55%
+  );
 }
 .login-card {
   width: min(400px, 100%);
@@ -37,8 +41,8 @@
   padding: 10px var(--sp-3);
   border-radius: var(--r-control);
   background: var(--c-danger-weak);
-  color: #a72020;
-  border: 1px solid #f5c9c9;
+  color: #b02b1e;
+  border: 1px solid #f3c9c2;
   font-size: var(--fs-small);
   font-weight: 600;
 }
@@ -56,40 +60,66 @@
   gap: var(--sp-3);
 }
 .kpi {
-  padding: var(--sp-3) var(--sp-4);
+  padding: var(--sp-4);
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
+.kpi-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  margin-bottom: var(--sp-3);
+  background: var(--c-neutral-weak);
+  color: var(--c-neutral);
+}
 .kpi-value {
-  font-size: 26px;
-  font-weight: 700;
-  line-height: 1.1;
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--c-text);
 }
 .kpi-label {
   font-size: var(--fs-small);
   color: var(--c-text-muted);
-  font-weight: 600;
+  font-weight: 500;
+  margin-top: var(--sp-1);
 }
-.kpi.kpi-danger {
-  border-left: 3px solid var(--c-danger);
+.kpi.kpi-danger .kpi-icon {
+  background: var(--c-danger-weak);
+  color: var(--c-danger);
 }
-.kpi.kpi-warning {
-  border-left: 3px solid var(--c-warning);
+.kpi.kpi-warning .kpi-icon {
+  background: var(--c-warning-weak);
+  color: var(--c-warning);
 }
-.kpi.kpi-primary {
-  border-left: 3px solid var(--c-primary);
+.kpi.kpi-primary .kpi-icon {
+  background: var(--c-primary-weak);
+  color: var(--c-attention);
 }
-.kpi.kpi-success {
-  border-left: 3px solid var(--c-success);
+.kpi.kpi-success .kpi-icon {
+  background: var(--c-success-weak);
+  color: var(--c-success);
 }
 @media (max-width: 640px) {
   .kpi-bar {
     grid-template-columns: repeat(2, 1fr);
     gap: var(--sp-2);
   }
+  .kpi {
+    padding: var(--sp-3);
+  }
   .kpi-value {
-    font-size: 22px;
+    font-size: 24px;
+  }
+  .kpi-icon {
+    width: 38px;
+    height: 38px;
+    margin-bottom: var(--sp-2);
   }
 }
 

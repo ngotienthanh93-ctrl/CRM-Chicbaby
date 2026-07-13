@@ -7,6 +7,8 @@ import {
   Clock,
   ShoppingBag,
   History,
+  AlertCircle,
+  CheckCircle2,
 } from 'lucide-react';
 import { api } from '../api/client';
 import type { WorkCard, WorkTodayResponse } from '../api/types';
@@ -111,18 +113,30 @@ function KpiBar({
     <div className="stack-2">
       <div className="kpi-bar">
         <div className="card kpi kpi-danger">
+          <span className="kpi-icon" aria-hidden>
+            <AlertCircle size={20} />
+          </span>
           <span className="kpi-value num">{kpi.atRisk}</span>
           <span className="kpi-label">Nguy cơ mất</span>
         </div>
         <div className="card kpi kpi-warning">
+          <span className="kpi-icon" aria-hidden>
+            <Clock size={20} />
+          </span>
           <span className="kpi-value num">{kpi.overdue}</span>
           <span className="kpi-label">Quá hạn</span>
         </div>
         <div className="card kpi kpi-primary">
+          <span className="kpi-icon" aria-hidden>
+            <Phone size={20} />
+          </span>
           <span className="kpi-value num">{kpi.needCall}</span>
           <span className="kpi-label">Cần gọi</span>
         </div>
         <div className="card kpi kpi-success">
+          <span className="kpi-icon" aria-hidden>
+            <CheckCircle2 size={20} />
+          </span>
           <span className="kpi-value num">{kpi.doneToday}</span>
           <span className="kpi-label">Đã xong hôm nay</span>
         </div>
