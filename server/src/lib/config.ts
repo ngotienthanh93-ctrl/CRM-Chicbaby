@@ -29,6 +29,20 @@ export interface EngineConfig {
   };
   experiment: {
     holdoutRatio: number;
+    // Chu kỳ (phút) worker holdout tự động chạy (phân nhóm + sinh việc). 0 = TẮT cron (chạy tay ở SCR-15).
+    cronIntervalMinutes: number;
+  };
+  export: {
+    // Số GIỜ hiệu lực của một yêu cầu export SAU khi được duyệt (hết hạn ⇒ không tải được).
+    approvalTtlHours: number;
+    // Trần số dòng mỗi lần tải export (chống DoS/tải khối lượng lớn).
+    maxRows: number;
+  };
+  twofa: {
+    // Số ngày một thiết bị được "tin cậy" (bỏ qua nhập 2FA) trước khi phải nhập lại.
+    trustedDeviceDays: number;
+    // Số mã dự phòng phát khi bật 2FA (dùng một lần khi mất authenticator).
+    backupCodeCount: number;
   };
   customer: {
     dormantAfterDays: number;
@@ -56,6 +70,9 @@ export interface EngineConfig {
     pollingIntervalMinutes: number;
     initialLoadMonths: number;
     reconciliationCutoff: string;
+    // Danh sách mã trạng thái đơn KiotViet coi là "đang mở" (CSV, không phân biệt hoa/thường) — cấu hình được
+    // để khớp semantics THẬT của shop khi có API Spike (nguyên tắc #9, thay danh sách hardcode best-effort).
+    openOrderStatuses: string;
   };
 }
 
@@ -81,7 +98,9 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
     atRiskAssigneeRole: 'chu_shop',
   },
   dedup: { mergeSuggestThreshold: 90 },
-  experiment: { holdoutRatio: 0.1 },
+  experiment: { holdoutRatio: 0.1, cronIntervalMinutes: 60 },
+  export: { approvalTtlHours: 72, maxRows: 5000 },
+  twofa: { trustedDeviceDays: 30, backupCodeCount: 10 },
   customer: { dormantAfterDays: 180 },
   baby: { ageStageThresholds: '0-6,6-12,12-36,36+' },
   purchase: { verificationWindowDays: 7 },
@@ -97,6 +116,8 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
     pollingIntervalMinutes: 20,
     initialLoadMonths: 12,
     reconciliationCutoff: '02:00',
+    // Best-effort: 1=phiếu tạm, 2=đang giao + biến thể chữ. Đổi ở SCR-14 khi biết mã status thật.
+    openOrderStatuses: '1,2,draft,processing,pending,delivering,phieu_tam,dang_giao,dang_giao_hang',
   },
 };
 
@@ -107,6 +128,8 @@ export type ConfigGroup =
   | 'sync'
   | 'dedup'
   | 'experiment'
+  | 'export'
+  | 'twofa'
   | 'baby'
   | 'claim'
   | 'customer'
@@ -120,6 +143,8 @@ export const CONFIG_GROUP_LABELS: Record<ConfigGroup, string> = {
   sync: 'Đồng bộ KiotViet',
   dedup: 'Chống trùng',
   experiment: 'Thí nghiệm holdout',
+  export: 'Export dữ liệu',
+  twofa: 'Xác thực 2 lớp',
   baby: 'Hồ sơ bé',
   claim: 'Khóa việc (claim)',
   customer: 'Khách hàng',
@@ -158,8 +183,18 @@ export const CONFIG_CATALOGUE: ConfigCatalogueItem[] = [
   { key: 'sync.polling_interval_minutes', value: c.sync.pollingIntervalMinutes, group: 'sync' },
   { key: 'sync.initial_load_months', value: c.sync.initialLoadMonths, group: 'sync' },
   { key: 'sync.reconciliation_cutoff', value: c.sync.reconciliationCutoff, group: 'sync' },
+  { key: 'sync.open_order_statuses', value: c.sync.openOrderStatuses, group: 'sync' },
   { key: 'dedup.merge_suggest_threshold', value: c.dedup.mergeSuggestThreshold, group: 'dedup' },
   { key: 'experiment.holdout_ratio', value: c.experiment.holdoutRatio, group: 'experiment' },
+  {
+    key: 'experiment.cron_interval_minutes',
+    value: c.experiment.cronIntervalMinutes,
+    group: 'experiment',
+  },
+  { key: 'export.approval_ttl_hours', value: c.export.approvalTtlHours, group: 'export' },
+  { key: 'export.max_rows', value: c.export.maxRows, group: 'export' },
+  { key: 'twofa.trusted_device_days', value: c.twofa.trustedDeviceDays, group: 'twofa' },
+  { key: 'twofa.backup_code_count', value: c.twofa.backupCodeCount, group: 'twofa' },
   { key: 'customer.dormant_after_days', value: c.customer.dormantAfterDays, group: 'customer' },
   { key: 'baby.age_stage_thresholds', value: c.baby.ageStageThresholds, group: 'baby' },
   { key: 'purchase.verification_window_days', value: c.purchase.verificationWindowDays, group: 'purchase' },

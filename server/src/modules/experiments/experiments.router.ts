@@ -13,15 +13,8 @@ import { writeAudit } from '../../security/audit';
 import { verifyReauth } from '../../security/reauth';
 import { DEFAULT_ENGINE_CONFIG } from '../../lib/config';
 import { HARD_EXCLUSION_RULES, enforceHardExclusions } from '../../engines/experiment';
-import {
-  generateConsumptionFollowUps,
-  generateReplenishmentFollowUps,
-} from '../../engines/generate';
-import {
-  assignExperiment,
-  computeHoldoutCustomerIds,
-  resolveGenerationAssignees,
-} from './assignment.service';
+import { assignExperiment } from './assignment.service';
+import { runExperimentGeneration } from './run.service';
 
 export const experimentsRouter = Router();
 // 🔴 Toàn bộ module chỉ cho vai cấu hình hệ thống (chỉ chu_shop). Gõ URL trực tiếp vẫn bị chặn (SEC-05).
@@ -434,57 +427,13 @@ experimentsRouter.post(
     // 🔴 Reauth trước khi chạy tác vụ nặng (AUTH-12/EXP-05).
     await verifyReauth(req.auth!.userId, parsed.data.password, req.ip);
 
-    // (a) Phân bổ cho MỌI thí nghiệm đang chạy.
-    const running = await prisma.experiment.findMany({
-      where: { status: 'running' },
-      select: { id: true, name: true },
-    });
-    const experiments: Array<{
-      id: string;
-      name: string;
-      assigned: number;
-      treatment: number;
-      holdout: number;
-      excluded: number;
-    }> = [];
-    for (const exp of running) {
-      const r = await assignExperiment(exp.id);
-      experiments.push({ id: exp.id, name: exp.name, ...r });
-    }
-
-    // (b) Hợp nhất tập holdout của mọi thí nghiệm running.
-    const holdoutCustomerIds = await computeHoldoutCustomerIds();
-
-    // (c) Người nhận việc (derive động theo vai).
-    const assignees = await resolveGenerationAssignees();
-
-    // (d) Sinh việc IDEMPOTENT — holdout KHÔNG hiện SCR-02 (EXP-04).
-    const consumptionCreated = await generateConsumptionFollowUps({ ...assignees, holdoutCustomerIds });
-    const replenishmentCreated = await generateReplenishmentFollowUps({
-      ...assignees,
-      holdoutCustomerIds,
+    // Orchestration dùng chung với cron (run.service). Chạy tay ⇒ trigger='manual', audit theo user.
+    const result = await runExperimentGeneration({
+      actorUserId: req.auth!.userId,
+      trigger: 'manual',
     });
 
-    // Audit SAU khi xong (generate tự quản transaction; không bọc chung 1 transaction khổng lồ).
-    await writeAudit({
-      userId: req.auth!.userId,
-      action: 'experiment.run_generation',
-      objectType: 'experiment',
-      objectId: null,
-      newValue: {
-        experiments: experiments.length,
-        holdoutCount: holdoutCustomerIds.size,
-        consumptionCreated,
-        replenishmentCreated,
-      },
-    });
-
-    res.json({
-      experiments,
-      holdoutCount: holdoutCustomerIds.size,
-      consumptionCreated,
-      replenishmentCreated,
-    });
+    res.json(result);
   }),
 );
 

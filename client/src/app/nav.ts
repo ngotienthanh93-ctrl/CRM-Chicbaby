@@ -9,6 +9,8 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   FlaskConical,
+  FileDown,
+  Lock,
   type LucideIcon,
 } from 'lucide-react';
 import type { Permissions } from '../api/types';
@@ -100,6 +102,22 @@ export const NAV_ITEMS: NavItem[] = [
     icon: FlaskConical,
     // §12.3: chỉ Chủ shop/Quản trị (manageConfig). Server cũng chặn 403.
     visible: (p) => p.manageConfig,
+  },
+  {
+    path: '/export-du-lieu',
+    label: 'Export dữ liệu',
+    shortLabel: 'Export',
+    icon: FileDown,
+    // Export dữ liệu khách/bé cần quyền xem dữ liệu nhạy cảm; marketing/trợ lý dữ liệu KHÔNG thấy. Server cũng 403.
+    visible: (p) => p.viewSensitive,
+  },
+  {
+    path: '/bao-mat',
+    label: 'Bảo mật',
+    shortLabel: 'Bảo mật',
+    icon: Lock,
+    // Self-service 2FA + thiết bị tin cậy: mọi vai đều xem được cho chính mình.
+    visible: () => true,
   },
 ];
 

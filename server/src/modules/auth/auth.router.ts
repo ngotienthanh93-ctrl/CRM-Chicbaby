@@ -6,11 +6,30 @@ import { requireAuth } from '../../middleware/auth';
 import { getEffectivePermissions } from '../../security/rolePermissions';
 import { writeAudit } from '../../security/audit';
 import { verifyReauth } from '../../security/reauth';
-import { SESSION_COOKIE, login, revokeSession } from './session.service';
+import {
+  SESSION_COOKIE,
+  TRUST_COOKIE,
+  login,
+  completeTwoFactorLogin,
+  pendingUserIdForChallenge,
+  revokeSession,
+} from './session.service';
+import { trustDevice as trustThisDevice } from './twofa.service';
 import { throttleKey } from './login-throttle';
 import { reserveAttemptDb, recordSuccessDb } from './throttle-store';
 
 export const authRouter = Router();
+
+/** Cookie phiên (đã xác thực đầy đủ) dùng chung tùy chọn. */
+function sessionCookieOpts(remember: boolean) {
+  return {
+    httpOnly: true,
+    // 🔴 SEC-FIX-5 (CSRF CWE-352): 'strict' — công cụ nội bộ cùng site (localhost) nên KHÔNG vỡ ở dev.
+    sameSite: 'strict' as const,
+    secure: env.isProd,
+    maxAge: remember ? 7 * 24 * 60 * 60 * 1000 : undefined,
+  };
+}
 
 const loginSchema = z.object({
   // 🔴 max(100): chặn username khổng lồ (khóa throttle/DoS) — user thật ngắn hơn nhiều.
@@ -41,12 +60,14 @@ authRouter.post(
       throw tooManyRequests('Bạn đã đăng nhập sai quá nhiều lần. Vui lòng thử lại sau ít phút.');
     }
 
-    const result = await login(parsed.data.username, parsed.data.password, {
+    const trustToken = (req.cookies?.[TRUST_COOKIE] as string | undefined) ?? undefined;
+    const outcome = await login(parsed.data.username, parsed.data.password, {
       device: req.get('user-agent') ?? undefined,
       ip: req.ip,
+      trustToken,
     });
     // AUTH-10: KHÔNG tiết lộ tài khoản có tồn tại hay không. Lần thử đã được đếm khi đặt chỗ.
-    if (!result) {
+    if (!outcome) {
       await writeAudit({
         userId: null,
         action: 'auth.login_failed',
@@ -56,24 +77,103 @@ authRouter.post(
       });
       throw unauthorized('Tên đăng nhập hoặc mật khẩu không đúng.');
     }
-    // Thành công => xóa bộ đếm sai của (username+IP) (hủy lần đặt chỗ vừa cộng).
+    // Mật khẩu ĐÚNG (dù có cần 2FA hay không) => xóa bộ đếm sai của (username+IP).
     await recordSuccessDb('login', key);
 
-    res.cookie(SESSION_COOKIE, result.token, {
-      httpOnly: true,
-      // 🔴 SEC-FIX-5 (CSRF CWE-352): 'strict' — công cụ nội bộ, client 5173 & server 4000 cùng site
-      // (localhost) nên KHÔNG vỡ ở dev; chặn gửi cookie phiên trong request cross-site (chống CSRF).
-      sameSite: 'strict',
-      secure: env.isProd,
-      // "Ghi nhớ" KHÔNG tick sẵn: chỉ set maxAge dài khi remember=true.
-      maxAge: parsed.data.remember ? 7 * 24 * 60 * 60 * 1000 : undefined,
+    // 🔴 2FA BẬT + thiết bị chưa tin cậy ⇒ CHƯA cấp phiên; trả challenge để client nhập TOTP (bước 2).
+    if (outcome.kind === 'twofa_required') {
+      res.json({ twoFactorRequired: true, challenge: outcome.challengeToken });
+      return;
+    }
+
+    res.cookie(SESSION_COOKIE, outcome.token, sessionCookieOpts(parsed.data.remember === true));
+    await writeAudit({
+      userId: outcome.user.userId,
+      action: 'auth.login',
+      objectType: 'user',
+      objectId: outcome.user.userId,
+      ip: req.ip,
     });
+
+    res.json({
+      user: {
+        id: outcome.user.userId,
+        username: outcome.user.username,
+        fullName: outcome.user.fullName,
+        role: outcome.user.role,
+      },
+      // 🔴 §12.1: quyền HIỆU LỰC (đã áp override ma trận quyền versioned).
+      permissions: await getEffectivePermissions(outcome.user.role),
+    });
+  }),
+);
+
+// 🔴 Đăng nhập BƯỚC 2 (2FA): nhập mã TOTP/backup cho challenge (phiên pending). Throttle TOÀN CỤC theo userId
+// (không kèm IP) chống dò mã 6 số kể cả xoay IP. Đúng ⇒ nâng cấp phiên + set cookie phiên; tùy chọn "tin thiết bị này".
+const twofaLoginSchema = z.object({
+  challenge: z.string().min(1),
+  code: z.string().min(1).max(20),
+  trustDevice: z.boolean().optional(),
+  remember: z.boolean().optional(),
+});
+authRouter.post(
+  '/login/2fa',
+  asyncHandler(async (req, res) => {
+    const parsed = twofaLoginSchema.safeParse(req.body);
+    if (!parsed.success) throw badRequest('Thiếu challenge hoặc mã xác thực.');
+
+    // Xác định user của challenge để throttle theo (userId+IP). Challenge hỏng ⇒ 401 (không lộ chi tiết).
+    const userId = await pendingUserIdForChallenge(parsed.data.challenge);
+    if (!userId) throw unauthorized('Phiên xác thực không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.');
+
+    // 🔴 CWE-307: throttle mã 2FA theo userId TOÀN CỤC (KHÔNG kèm IP) — kẻ có mật khẩu KHÔNG thể xoay IP để
+    // dò mã 6 số không giới hạn. Đếm gộp mọi lần thử (mọi IP/mọi challenge) của user ⇒ khóa sau softThreshold.
+    const key = `user:${userId}`;
+    const reservation = await reserveAttemptDb('twofa', key);
+    if (!reservation.allowed) {
+      await writeAudit({
+        userId,
+        action: 'auth.twofa_locked',
+        objectType: 'user',
+        objectId: userId,
+        ip: req.ip,
+        newValue: { retryAfterMs: reservation.retryAfterMs },
+      });
+      throw tooManyRequests('Bạn đã nhập sai mã quá nhiều lần. Vui lòng thử lại sau ít phút.');
+    }
+
+    const result = await completeTwoFactorLogin(parsed.data.challenge, parsed.data.code);
+    if (!result.ok) {
+      await writeAudit({
+        userId,
+        action: 'auth.twofa_failed',
+        objectType: 'user',
+        objectId: userId,
+        ip: req.ip,
+        newValue: { reason: result.reason },
+      });
+      throw unauthorized('Mã xác thực không đúng.');
+    }
+    await recordSuccessDb('twofa', key);
+
+    res.cookie(SESSION_COOKIE, result.token, sessionCookieOpts(parsed.data.remember === true));
+    // Tùy chọn: tin thiết bị này (bỏ qua 2FA trong hạn cấu hình) — set cookie tin cậy httpOnly.
+    if (parsed.data.trustDevice === true) {
+      const { token: tt, maxAgeMs } = await trustThisDevice(userId, req.get('user-agent') ?? null);
+      res.cookie(TRUST_COOKIE, tt, {
+        httpOnly: true,
+        sameSite: 'strict',
+        secure: env.isProd,
+        maxAge: maxAgeMs,
+      });
+    }
     await writeAudit({
       userId: result.user.userId,
       action: 'auth.login',
       objectType: 'user',
       objectId: result.user.userId,
       ip: req.ip,
+      newValue: { via: '2fa', trustedDevice: parsed.data.trustDevice === true },
     });
 
     res.json({
@@ -83,7 +183,6 @@ authRouter.post(
         fullName: result.user.fullName,
         role: result.user.role,
       },
-      // 🔴 §12.1: quyền HIỆU LỰC (đã áp override ma trận quyền versioned).
       permissions: await getEffectivePermissions(result.user.role),
     });
   }),

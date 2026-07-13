@@ -20,7 +20,7 @@ import {
   type ThrottleConfig,
 } from './login-throttle';
 
-export type ThrottleScope = 'login' | 'reauth';
+export type ThrottleScope = 'login' | 'reauth' | 'twofa';
 
 /**
  * Id lưu trong DB = sha256("<scope>\0<key>") — HASH độ dài cố định (64 hex):

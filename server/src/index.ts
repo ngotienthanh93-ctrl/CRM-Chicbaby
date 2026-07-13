@@ -2,6 +2,7 @@ import './lib/env';
 import { env } from './lib/env';
 import { createApp } from './app';
 import { cleanupStaleThrottle } from './modules/auth/throttle-store';
+import { startExperimentScheduler } from './modules/experiments/scheduler';
 
 const app = createApp();
 
@@ -21,6 +22,9 @@ const throttleCleanupTimer = setInterval(() => {
 }, THROTTLE_CLEANUP_INTERVAL_MS);
 throttleCleanupTimer.unref(); // không giữ tiến trình sống chỉ vì timer này
 
+// 🔴 §7.1: cron worker holdout tự động (phân nhóm + sinh việc) — chu kỳ đọc từ config experiment.cron_interval_minutes.
+const experimentScheduler = startExperimentScheduler();
+
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
     // eslint-disable-next-line no-console
@@ -36,6 +40,7 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
     clearInterval(throttleCleanupTimer);
+    experimentScheduler.stop();
     server.close(() => process.exit(0));
   });
 }

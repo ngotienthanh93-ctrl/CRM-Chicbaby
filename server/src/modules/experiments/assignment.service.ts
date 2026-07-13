@@ -4,9 +4,11 @@
 // KHÔNG chứa business rule mới — mọi quyết định loại trừ/phân nhóm nằm ở engine thuần.
 import { prisma } from '../../lib/prisma';
 import { badRequest, notFound } from '../../lib/http';
+import { DEFAULT_ENGINE_CONFIG } from '../../lib/config';
 import {
   classifyForExperiment,
   isOpenOrderStatus,
+  parseOpenOrderStatuses,
   type ExperimentAssignmentContext,
 } from '../../engines/experiment';
 
@@ -23,6 +25,14 @@ const OPEN_FOLLOWUP_STATUSES = ['cho_toi_han', 'den_han', 'da_lien_he', 'hen_lai
  *   - order/debt     ← KvOrder trạng thái mở, map kvCustomerId→crm qua CustomerExternalIdentity (best-effort).
  */
 export async function loadAssignmentContext(): Promise<ExperimentAssignmentContext> {
+  // ⚙️ Tập mã trạng thái đơn "đang mở" đọc từ cấu hình active (fallback DEFAULT) — nguyên tắc #9.
+  const openStatusCfg = await prisma.configurationVersion.findFirst({
+    where: { key: 'sync.open_order_statuses', isActive: true },
+  });
+  const openStatusCsv =
+    typeof openStatusCfg?.value === 'string' ? openStatusCfg.value : DEFAULT_ENGINE_CONFIG.sync.openOrderStatuses;
+  const openOrderStatuses = parseOpenOrderStatuses(openStatusCsv);
+
   const [vipRoles, atRiskOrgs, callbackFu, serviceFu, identities, orders] = await Promise.all([
     prisma.customerRole.findMany({
       where: { role: 'wholesale_contact' },
@@ -78,7 +88,7 @@ export async function loadAssignmentContext(): Promise<ExperimentAssignmentConte
   identities.forEach((i) => kvToCrm.set(i.externalCustomerId, i.customerId));
   const openOrderDebtCustomerIds = new Set<string>();
   for (const o of orders) {
-    if (!isOpenOrderStatus(o.status)) continue;
+    if (!isOpenOrderStatus(o.status, openOrderStatuses)) continue;
     const crmId = o.kvCustomerId ? kvToCrm.get(o.kvCustomerId) : undefined;
     if (crmId) openOrderDebtCustomerIds.add(crmId);
   }

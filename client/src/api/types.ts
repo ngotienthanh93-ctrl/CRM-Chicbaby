@@ -711,6 +711,66 @@ export interface ExperimentsResponse {
   items: ExperimentDTO[];
 }
 
+// ---- Export dữ liệu có duyệt (SEC: export khách/bé ⇒ cần duyệt + audit) ----
+export type ExportDatasetScope = 'customers' | 'babies';
+/** Trạng thái LƯU trong DB (chưa tính động expiry/revoke). */
+export type ExportStoredStatus = 'pending' | 'approved' | 'rejected' | 'expired';
+/** Trạng thái HIỆU LỰC (đã tính expiry/revoke ở server) — dùng để hiển thị badge. */
+export type ExportEffectiveState = 'pending' | 'approved' | 'rejected' | 'expired' | 'revoked';
+
+export interface ExportRequestDto {
+  id: string;
+  requestedBy: string;
+  datasetScope: ExportDatasetScope;
+  reason: string;
+  status: ExportStoredStatus;
+  effectiveState: ExportEffectiveState;
+  approvedBy: string | null;
+  expiresAt: string | null;
+  downloadCount: number;
+  revokedAt: string | null;
+  createdAt: string;
+  /** true ⇒ được phép tải (đã duyệt, còn hạn, chưa thu hồi). */
+  downloadable: boolean;
+}
+export interface ExportsResponse {
+  items: ExportRequestDto[];
+}
+
+/** Kết quả GET /api/exports/:id/download — JSON để tạo Blob tải về. */
+export interface ExportDownloadResponse {
+  exportId: string;
+  datasetScope: ExportDatasetScope;
+  generatedAt: string;
+  rowCount: number;
+  /** true ⇒ dữ liệu bị cắt bởi trần maxRows. */
+  capped: boolean;
+  rows: Record<string, unknown>[];
+}
+
+// ---- Gộp hồ sơ bé trùng (POST /api/babies/:masterId/merge) ----
+/** Số bản ghi đã dời từ bé trùng sang bé giữ (theo từng loại quan hệ). */
+export interface BabyMergeReassigned {
+  consultations: number;
+  consents: number;
+  consentEvents: number;
+  allocations: number;
+  suggestedAllocations: number;
+  usages: number;
+  usagesDropped: number;
+  avoidances: number;
+  avoidancesDropped: number;
+  reminderSourcesToCustomerLevel: number;
+}
+export interface BabyMergeResult {
+  masterBabyId: string;
+  mergedBabyId: string;
+  reassigned: BabyMergeReassigned;
+  /** Các trường của bé GIỮ được điền bổ sung từ bé trùng (gap-fill). */
+  gapFilledFields: string[];
+  master: Baby | null;
+}
+
 /** Kết quả POST /api/experiments/:id/assign — phân nhóm 1 thí nghiệm. */
 export interface ExperimentAssignResult {
   assigned: number;
@@ -725,4 +785,41 @@ export interface ExperimentRunResult {
   holdoutCount: number;
   consumptionCreated: number;
   replenishmentCreated: number;
+}
+
+// ---- Xác thực 2 lớp (2FA/TOTP) + thiết bị tin cậy ----
+/** /login khi tài khoản bật 2FA: CHƯA đăng nhập, cần bước xác thực thứ 2 với `challenge`. */
+export interface TwoFactorChallengeResponse {
+  twoFactorRequired: true;
+  challenge: string;
+}
+/** POST /api/auth/login trả HOẶC phiên đăng nhập (MeResponse) HOẶC yêu cầu 2FA. */
+export type LoginResponse = MeResponse | TwoFactorChallengeResponse;
+
+/** Trạng thái 2FA của chính người dùng đang đăng nhập (GET /api/auth/2fa/status). */
+export interface TwoFactorStatus {
+  enabled: boolean;
+  enrolledAt: string | null;
+  backupCodesRemaining: number;
+}
+/** Kết quả khởi tạo enroll (POST /api/auth/2fa/setup): secret + URI để render QR. */
+export interface TwoFactorSetup {
+  secret: string;
+  otpauthUri: string;
+}
+/** Danh sách mã dự phòng — hiện MỘT LẦN (enable / phát lại). */
+export interface TwoFactorBackupCodesResult {
+  backupCodes: string[];
+}
+
+/** Thiết bị tin cậy của chính người dùng (GET /api/auth/2fa/trusted-devices). */
+export interface TrustedDevice {
+  id: string;
+  deviceLabel: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+}
+export interface TrustedDevicesResponse {
+  items: TrustedDevice[];
 }

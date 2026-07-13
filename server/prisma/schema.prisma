@@ -303,10 +303,30 @@ model User {
   updatedAt    DateTime   @updatedAt
   createdBy    String?
 
-  role     Role      @relation(fields: [roleId], references: [id])
-  sessions Session[]
+  // 🔴 2FA (TOTP): bật/tắt + secret MÃ HÓA (AES-GCM, không lưu thô). Chỉ bật sau khi xác minh mã đầu tiên.
+  twoFactorEnabled    Boolean   @default(false)
+  twoFactorSecret     String? // ciphertext `iv:tag:ct`; NULL khi chưa/đã tắt
+  twoFactorEnrolledAt DateTime?
+
+  role        Role                 @relation(fields: [roleId], references: [id])
+  sessions    Session[]
+  backupCodes TwoFactorBackupCode[]
 
   @@map("users")
+}
+
+// 🔴 Mã dự phòng 2FA (backup code) — DÙNG MỘT LẦN khi mất authenticator. Lưu HASH (HMAC), không lưu thô.
+model TwoFactorBackupCode {
+  id        String    @id @default(cuid())
+  userId    String
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("two_factor_backup_codes")
 }
 
 model Session {
@@ -319,6 +339,9 @@ model Session {
   revokedAt  DateTime?
   lastSeenAt DateTime  @default(now())
   createdAt  DateTime  @default(now())
+  // 🔴 2FA two-step: phiên tạo sau bước mật khẩu nhưng CHƯA qua 2FA ⇒ pending=true, KHÔNG truy cập API được.
+  // Hoàn tất 2FA ⇒ pending=false. validateSession từ chối phiên pending.
+  pendingTwoFactor Boolean @default(false)
 
   user User @relation(fields: [userId], references: [id])
 
@@ -330,7 +353,10 @@ model TrustedDevice {
   id          String    @id @default(cuid())
   userId      String
   deviceLabel String?
-  fingerprint String
+  // 🔴 fingerprint = HASH(token thiết bị tin cậy) — cookie mang token thô, DB chỉ giữ hash (như session).
+  fingerprint String    @unique
+  // Hết hạn tin cậy (sau đó phải nhập lại 2FA). NULL cũ = coi như không giới hạn (dữ liệu trước migration).
+  expiresAt   DateTime?
   lastUsedAt  DateTime?
   revokedAt   DateTime?
   createdAt   DateTime  @default(now())
@@ -1270,4 +1296,17 @@ model ThrottleEntry {
 
   @@index([lockedUntil])
   @@map("throttle_entries")
+}
+
+// 🔴 A04/TOCTOU: khóa CHO thuê (lease) chống chạy CHỒNG lượt "sinh việc" (cron worker holdout + POST /run).
+// Một hàng cho mỗi tác vụ nền (name=PK). `lockedUntil` = hạn giữ (TTL) — chia sẻ đa-instance, không mất khi
+// restart. Acquire NGUYÊN TỬ (Serializable + retry): chỉ giữ được khi lockedUntil đã qua. Luôn release ở
+// finally; TTL chỉ phòng tiến trình crash giữa chừng.
+model SchedulerLease {
+  name        String   @id
+  lockedUntil DateTime
+  holder      String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("scheduler_leases")
 }

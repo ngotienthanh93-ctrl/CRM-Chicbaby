@@ -9,6 +9,7 @@ import { prisma } from './lib/prisma';
 import { requireAuth } from './middleware/auth';
 import { errorHandler, notFoundHandler } from './middleware/error';
 import { authRouter } from './modules/auth/auth.router';
+import { twofaRouter } from './modules/auth/twofa.router';
 import { workRouter } from './modules/work/work.router';
 import { followupsRouter } from './modules/followups/followups.router';
 import { customersRouter } from './modules/customers/customers.router';
@@ -23,6 +24,7 @@ import { configRouter } from './modules/config/config.router';
 import { reportsRouter } from './modules/reports/reports.router';
 import { adminRouter } from './modules/admin/admin.router';
 import { experimentsRouter } from './modules/experiments/experiments.router';
+import { exportsRouter } from './modules/exports/exports.router';
 
 export function createApp() {
   const app = express();
@@ -71,6 +73,7 @@ export function createApp() {
   );
 
   // API routes (mount /api)
+  app.use('/api/auth/2fa', twofaRouter);
   app.use('/api/auth', authRouter);
   app.use('/api/work', workRouter);
   app.use('/api/followups', followupsRouter);
@@ -87,6 +90,7 @@ export function createApp() {
   app.use('/api/reports', reportsRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api/experiments', experimentsRouter);
+  app.use('/api/exports', exportsRouter);
 
   // 404 + error handler (đặt cuối)
   app.use(notFoundHandler);

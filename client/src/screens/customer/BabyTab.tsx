@@ -1,11 +1,26 @@
 import { useState } from 'react';
-import { Plus, Pencil, Trash2, Baby as BabyIcon, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, Baby as BabyIcon, AlertTriangle, GitMerge, ShieldAlert } from 'lucide-react';
 import { api } from '../../api/client';
-import type { Baby } from '../../api/types';
+import type { Baby, BabyMergeResult } from '../../api/types';
 import { useApi } from '../../hooks/useApi';
+import { useAuth } from '../../app/AuthContext';
 import { useToast } from '../../components/Toast';
 import { Modal } from '../../components/Modal';
 import { Badge, EmptyState, ErrorState, SkeletonCards } from '../../components/ui';
+import { ReauthModal } from '../admin/ReauthModal';
+
+// Nhãn tiếng Việt cho các trường được điền bổ sung (gap-fill) khi gộp bé.
+const BABY_FIELD_LABEL: Record<string, string> = {
+  babyName: 'tên bé',
+  birthDate: 'ngày sinh',
+  estimatedBirthMonth: 'tháng sinh ước tính',
+  ageMonthsAtRecording: 'tháng tuổi ghi nhận',
+  ageRecordedAt: 'thời điểm ghi tuổi',
+  gender: 'giới tính',
+  allergies: 'dị ứng',
+  condition: 'tình trạng',
+  note: 'ghi chú',
+};
 
 const AGE_STAGE_LABEL: Record<string, string> = {
   '0-6': '0–6 tháng',
@@ -15,12 +30,18 @@ const AGE_STAGE_LABEL: Record<string, string> = {
 };
 
 export function BabyTab({ customerId }: { customerId: string }) {
+  const { permissions } = useAuth();
   const state = useApi<{ items: Baby[] }>(
     () => api.get(`/api/customers/${customerId}/babies`),
     [customerId],
   );
   const [editing, setEditing] = useState<Baby | 'new' | null>(null);
   const [deleting, setDeleting] = useState<Baby | null>(null);
+  const [merging, setMerging] = useState(false);
+
+  const babies = state.status === 'success' ? state.data.items : [];
+  // 🔴 Chỉ Chủ shop (approveMerge) mới được gộp bé trùng; cần ≥2 bé mới có gì để gộp. Server cũng chặn 403.
+  const canMerge = (permissions?.approveMerge ?? false) && babies.length >= 2;
 
   return (
     <div className="stack-4">
@@ -33,10 +54,18 @@ export function BabyTab({ customerId }: { customerId: string }) {
 
       <div className="between">
         <h3 className="h3">Hồ sơ bé</h3>
-        <button className="btn btn-primary btn-sm" onClick={() => setEditing('new')}>
-          <Plus size={16} aria-hidden />
-          Thêm bé
-        </button>
+        <div className="row" style={{ gap: 8 }}>
+          {canMerge && (
+            <button className="btn btn-outline btn-sm" onClick={() => setMerging(true)}>
+              <GitMerge size={16} aria-hidden />
+              Gộp bé trùng
+            </button>
+          )}
+          <button className="btn btn-primary btn-sm" onClick={() => setEditing('new')}>
+            <Plus size={16} aria-hidden />
+            Thêm bé
+          </button>
+        </div>
       </div>
 
       {state.status === 'loading' && <SkeletonCards count={2} />}
@@ -128,7 +157,112 @@ export function BabyTab({ customerId }: { customerId: string }) {
           }}
         />
       )}
+
+      {merging && (
+        <MergeBabyModal
+          babies={babies}
+          onClose={() => setMerging(false)}
+          onMerged={() => {
+            setMerging(false);
+            state.reload();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/* 🔴 Gộp 2 hồ sơ bé TRÙNG của cùng một khách (nguyên tắc #1: master thắng, chỉ điền field trống; bé
+   trùng soft-delete). CHỈ Chủ shop + nhập lại mật khẩu (reauth). Server chặn 403/400/409 nếu sai. */
+function MergeBabyModal({
+  babies,
+  onClose,
+  onMerged,
+}: {
+  babies: Baby[];
+  onClose: () => void;
+  onMerged: () => void;
+}) {
+  const toast = useToast();
+  const [masterId, setMasterId] = useState(babies[0]?.id ?? '');
+  const [duplicateId, setDuplicateId] = useState(babies[1]?.id ?? '');
+
+  const sameBaby = masterId === duplicateId;
+  const label = (b: Baby) => b.babyName || 'Bé (chưa đặt tên)';
+
+  const merge = async (password: string) => {
+    const res = await api.post<BabyMergeResult>(`/api/babies/${masterId}/merge`, {
+      duplicateBabyId: duplicateId,
+      password,
+    });
+    const filled = res.gapFilledFields.map((f) => BABY_FIELD_LABEL[f] ?? f);
+    toast(
+      'success',
+      filled.length > 0
+        ? `Đã gộp bé; điền bổ sung: ${filled.join(', ')}.`
+        : 'Đã gộp bé trùng (không có trường nào cần bổ sung).',
+    );
+  };
+
+  return (
+    <ReauthModal
+      title="Gộp hồ sơ bé trùng"
+      submitLabel="Gộp bé"
+      danger
+      disabled={sameBaby || !masterId || !duplicateId}
+      warning={
+        <div className="notice notice-warning">
+          <ShieldAlert size={16} aria-hidden />
+          <span className="small">
+            Bé GIỮ LẠI luôn thắng; chỉ điền bổ sung trường bé giữ đang trống. Bé trùng được soft-delete
+            (khôi phục được nếu gộp nhầm). Thao tác này được ghi nhật ký.
+          </span>
+        </div>
+      }
+      onClose={onClose}
+      onSubmit={merge}
+      onDone={onMerged}
+    >
+      <div className="field">
+        <label className="label" htmlFor="merge-master">
+          Bé GIỮ LẠI (master)
+        </label>
+        <select
+          id="merge-master"
+          className="select"
+          value={masterId}
+          onChange={(e) => setMasterId(e.target.value)}
+        >
+          {babies.map((b) => (
+            <option key={b.id} value={b.id}>
+              {label(b)}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="field">
+        <label className="label" htmlFor="merge-duplicate">
+          Bé TRÙNG (sẽ gộp vào bé giữ)
+        </label>
+        <select
+          id="merge-duplicate"
+          className="select"
+          value={duplicateId}
+          onChange={(e) => setDuplicateId(e.target.value)}
+        >
+          {babies.map((b) => (
+            <option key={b.id} value={b.id}>
+              {label(b)}
+            </option>
+          ))}
+        </select>
+        {sameBaby && (
+          <span className="caption" style={{ color: 'var(--c-danger)' }}>
+            Chọn hai bé KHÁC nhau để gộp.
+          </span>
+        )}
+      </div>
+    </ReauthModal>
   );
 }
 

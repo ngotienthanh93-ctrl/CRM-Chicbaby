@@ -135,24 +135,23 @@ export function deriveExclusionSignals(
  * hoàn tất/đã hủy là terminal ⇒ KHÔNG mở. status null/không rõ ⇒ KHÔNG mở (tránh loại nhầm quá tay).
  * GIẢ ĐỊNH: khi xác nhận được semantics status thật của shop, nên chuyển danh sách này sang cấu hình.
  */
-const OPEN_ORDER_STATUS_SET = new Set<string>([
-  // mã số KiotViet phổ biến: 1 = phiếu tạm, 2 = đang giao hàng
-  '1',
-  '2',
-  // biến thể chữ (không phân biệt hoa/thường)
-  'draft',
-  'processing',
-  'pending',
-  'delivering',
-  'phieu_tam',
-  'dang_giao',
-  'dang_giao_hang',
-]);
+/** Chuẩn hóa CSV mã trạng thái "đang mở" → Set (trim + lowercase, bỏ rỗng). Nguồn: cấu hình sync.open_order_statuses. */
+export function parseOpenOrderStatuses(csv: string): Set<string> {
+  return new Set(
+    csv
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => s.length > 0),
+  );
+}
 
-/** Trạng thái đơn KiotViet có đang mở không (best-effort — xem OPEN_ORDER_STATUS_SET). */
-export function isOpenOrderStatus(status: string | null | undefined): boolean {
+/**
+ * Trạng thái đơn KiotViet có đang mở không — so với TẬP mã "đang mở" đã cấu hình (`openSet`).
+ * status null/không thuộc tập ⇒ KHÔNG mở (tránh loại nhầm quá tay). Caller nạp openSet từ config active.
+ */
+export function isOpenOrderStatus(status: string | null | undefined, openSet: Set<string>): boolean {
   if (status == null) return false;
-  return OPEN_ORDER_STATUS_SET.has(status.trim().toLowerCase());
+  return openSet.has(status.trim().toLowerCase());
 }
 
 /** Kết quả phân loại 1 khách cho thí nghiệm: loại trừ (kèm lý do) hoặc nhóm ổn định. */

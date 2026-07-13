@@ -4,8 +4,10 @@ import { prisma } from '../../lib/prisma';
 import { asyncHandler, badRequest, conflict, notFound } from '../../lib/http';
 import { requireAuth, requirePermission } from '../../middleware/auth';
 import { writeAudit } from '../../security/audit';
+import { verifyReauth } from '../../security/reauth';
 import { serializeBaby } from '../../security/serialize';
 import { estimatedBirthMonthFrom, hasValidAgeIdentity } from '../../engines/babyAge';
+import { mergeBabies } from './babyMerge.service';
 
 /** Thông điệp 409 chung cho optimistic locking (CONC-03). */
 const STALE_VERSION_MSG = 'Dữ liệu vừa được người khác cập nhật, vui lòng tải lại rồi thử lại.';
@@ -182,5 +184,32 @@ babiesRouter.delete(
       objectId: existing.id,
     });
     res.json({ ok: true });
+  }),
+);
+
+// 🔴 Gộp hồ sơ bé trùng (CHỈ Chủ shop duyệt — approveMerge + nhập lại mật khẩu). Nguyên tắc #1: không đoán bé;
+// gộp bảo thủ (master thắng, chỉ gap-fill field trống), bé trùng soft-delete. :id = bé GIỮ LẠI (master).
+const mergeSchema = z.object({
+  duplicateBabyId: z.string().min(1),
+  password: z.string().min(1),
+  expectedMasterVersion: z.number().int().optional(),
+  expectedDuplicateVersion: z.number().int().optional(),
+});
+babiesRouter.post(
+  '/:id/merge',
+  requirePermission('approveMerge'),
+  asyncHandler(async (req, res) => {
+    const parsed = mergeSchema.safeParse(req.body);
+    if (!parsed.success) throw badRequest('Thiếu bé trùng hoặc mật khẩu xác minh.');
+    await verifyReauth(req.auth!.userId, parsed.data.password, req.ip);
+    const result = await mergeBabies({
+      masterBabyId: String(req.params.id),
+      duplicateBabyId: parsed.data.duplicateBabyId,
+      actorUserId: req.auth!.userId,
+      expectedMasterVersion: parsed.data.expectedMasterVersion,
+      expectedDuplicateVersion: parsed.data.expectedDuplicateVersion,
+    });
+    const master = await prisma.babyProfile.findUnique({ where: { id: result.masterBabyId } });
+    res.json({ ...result, master: master ? serializeBaby(master, req.permissions!) : null });
   }),
 );

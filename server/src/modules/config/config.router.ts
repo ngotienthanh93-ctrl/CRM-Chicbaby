@@ -49,6 +49,14 @@ interface NumericBound {
 // Cận trên (max) đặt rộng-rãi-hợp-lý để chống giá trị "khổng lồ" gây DoS vận hành, KHÔNG bó nghiệp vụ thực tế.
 const NUMERIC_BOUNDS: Record<string, NumericBound> = {
   'experiment.holdout_ratio': { min: 0.1, max: 0.15 },
+  // 0 = tắt cron worker holdout; >0 = chu kỳ phút (tối đa 1 ngày). Nguyên tắc #9: cấu hình được.
+  'experiment.cron_interval_minutes': { min: 0, max: 1440, integer: true },
+  // Export có duyệt: hạn tải (giờ, tối đa 1 năm) + trần số dòng mỗi lần tải (chống DoS).
+  'export.approval_ttl_hours': { min: 1, max: 8760, integer: true },
+  'export.max_rows': { min: 1, max: 100000, integer: true },
+  // 2FA: số ngày tin cậy thiết bị (tối đa 1 năm) + số mã dự phòng (3–20).
+  'twofa.trusted_device_days': { min: 1, max: 365, integer: true },
+  'twofa.backup_code_count': { min: 3, max: 20, integer: true },
   'reminder.buffer_days': { min: 0, max: 365, integer: true },
   'reminder.grouping_window_days': { min: 1, max: 90, integer: true },
   'contact_cap.proactive_sales_per_month': { min: 0, max: 100, integer: true },

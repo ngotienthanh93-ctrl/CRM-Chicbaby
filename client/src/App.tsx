@@ -14,6 +14,8 @@ import { MergeScreen } from './screens/MergeScreen';
 import { AdminScreen } from './screens/AdminScreen';
 import { SystemConfigScreen } from './screens/SystemConfigScreen';
 import { ExperimentsScreen } from './screens/ExperimentsScreen';
+import { ExportScreen } from './screens/ExportScreen';
+import { SecurityScreen } from './screens/SecurityScreen';
 import type { Permissions } from './api/types';
 import type { ReactNode } from 'react';
 import { EmptyState } from './components/ui';
@@ -140,6 +142,16 @@ export function App() {
             </Guard>
           }
         />
+        <Route
+          path="/export-du-lieu"
+          element={
+            <Guard allow={(p) => p.viewSensitive}>
+              <ExportScreen />
+            </Guard>
+          }
+        />
+        {/* Self-service 2FA + thiết bị tin cậy — mọi vai (bảo mật thật ở server). */}
+        <Route path="/bao-mat" element={<SecurityScreen />} />
         <Route path="/" element={<Navigate to="/viec-hom-nay" replace />} />
         <Route
           path="*"
