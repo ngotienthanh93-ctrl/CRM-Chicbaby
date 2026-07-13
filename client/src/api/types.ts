@@ -606,3 +606,107 @@ export interface AuditLogsResponse {
   limit: number;
   items: AuditLogItem[];
 }
+
+// ---- SCR-14 Cấu hình hệ thống (CFG-01..06) ----
+/** Giá trị cấu hình đa kiểu (số/chuỗi/bool/null=∞ khóa cứng). */
+// Giá trị cấu hình: đa số là scalar (số/chuỗi/bool/null), nhưng vài key seed là JSON phức tạp
+// (vd `consultation.quick_templates` = mảng object). Type phản ánh đúng thực tế backend trả về.
+export type ConfigValue =
+  | number
+  | string
+  | boolean
+  | null
+  | ConfigValue[]
+  | { [key: string]: ConfigValue };
+export type ConfigAppliesTo = 'new_only' | 'recalculate';
+
+/** Một tham số cấu hình đang active (GET /api/config). `locked` = khóa cứng (vd trần service_contact = ∞). */
+export interface SystemConfigItem {
+  key: string;
+  value: ConfigValue;
+  version: number;
+  locked: boolean;
+  group: string | null;
+  groupLabel: string | null;
+}
+export interface SystemConfigResponse {
+  items: SystemConfigItem[];
+}
+
+/** Người thực hiện trong lịch sử cấu hình (join user, có thể null nếu seed/không rõ). */
+export interface ConfigActor {
+  id: string;
+  username: string | null;
+  fullName: string | null;
+}
+/** Một phiên bản trong lịch sử cấu hình (GET /api/config/:key/history) — DESC. */
+export interface ConfigHistoryItem {
+  version: number;
+  value: ConfigValue;
+  isActive: boolean;
+  effectiveFrom: string;
+  createdBy: ConfigActor | null;
+  reason: string | null;
+  appliesTo: ConfigAppliesTo | null;
+  changedBy: ConfigActor | null;
+  changedAt: string;
+}
+export interface ConfigHistoryResponse {
+  key: string;
+  items: ConfigHistoryItem[];
+}
+
+/** Kết quả xem trước ảnh hưởng khi chọn `recalculate` (POST /api/config/recalculate-preview). */
+export interface RecalcPreview {
+  key: string;
+  currentValue: ConfigValue;
+  proposedValue: ConfigValue;
+  affected: number;
+  changed: number;
+  closed: number;
+  lost: number;
+  sampleSize: number;
+  estimated: boolean;
+  note: string;
+}
+
+// ---- SCR-15 Quản lý thí nghiệm holdout (EXP-01..07) ----
+export type ExperimentStatus = 'draft' | 'running' | 'paused' | 'completed';
+
+/** Một luật loại trừ khóa cứng (luôn locked=true, không thể tắt). */
+export interface ExperimentExclusionRule {
+  key: string;
+  label: string;
+  locked: true;
+}
+export interface ExperimentScope {
+  roles: string[];
+  productGroups: string[];
+}
+/** Thí nghiệm holdout + số mẫu hiện tại + cờ đủ mẫu (EXP-06). */
+export interface ExperimentDTO {
+  id: string;
+  name: string;
+  startAt: string;
+  endAt: string | null;
+  holdoutRatio: number;
+  status: ExperimentStatus;
+  assignmentUnit: string;
+  minSampleTreatment: number;
+  minSampleHoldout: number;
+  sampleTreatment: number;
+  sampleHoldout: number;
+  enoughTreatment: boolean;
+  enoughHoldout: boolean;
+  enoughSample: boolean;
+  /** 🔴 EXP-06: false ⇒ KHÔNG hiển thị kết luận uplift. */
+  hasConclusion: boolean;
+  exclusionRules: ExperimentExclusionRule[];
+  scope: ExperimentScope;
+  createdBy: string;
+  approvedBy: string | null;
+  createdAt: string;
+}
+export interface ExperimentsResponse {
+  items: ExperimentDTO[];
+}

@@ -12,6 +12,8 @@ import { ReportsScreen } from './screens/ReportsScreen';
 import { SyncScreen } from './screens/SyncScreen';
 import { MergeScreen } from './screens/MergeScreen';
 import { AdminScreen } from './screens/AdminScreen';
+import { SystemConfigScreen } from './screens/SystemConfigScreen';
+import { ExperimentsScreen } from './screens/ExperimentsScreen';
 import type { Permissions } from './api/types';
 import type { ReactNode } from 'react';
 import { EmptyState } from './components/ui';
@@ -119,6 +121,22 @@ export function App() {
           element={
             <Guard allow={(p) => p.manageUsers}>
               <AdminScreen />
+            </Guard>
+          }
+        />
+        <Route
+          path="/cau-hinh-he-thong"
+          element={
+            <Guard allow={(p) => p.manageConfig}>
+              <SystemConfigScreen />
+            </Guard>
+          }
+        />
+        <Route
+          path="/thi-nghiem"
+          element={
+            <Guard allow={(p) => p.manageConfig}>
+              <ExperimentsScreen />
             </Guard>
           }
         />

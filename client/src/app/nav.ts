@@ -7,6 +7,8 @@ import {
   RefreshCw,
   BarChart3,
   ShieldCheck,
+  SlidersHorizontal,
+  FlaskConical,
   type LucideIcon,
 } from 'lucide-react';
 import type { Permissions } from '../api/types';
@@ -82,6 +84,22 @@ export const NAV_ITEMS: NavItem[] = [
     icon: ShieldCheck,
     // §12.1: chỉ Chủ shop/Quản trị (manageUsers). Server cũng chặn 403.
     visible: (p) => p.manageUsers,
+  },
+  {
+    path: '/cau-hinh-he-thong',
+    label: 'Cấu hình hệ thống',
+    shortLabel: 'Cấu hình HT',
+    icon: SlidersHorizontal,
+    // §12.2: chỉ Chủ shop/Quản trị (manageConfig). Server cũng chặn 403.
+    visible: (p) => p.manageConfig,
+  },
+  {
+    path: '/thi-nghiem',
+    label: 'Thí nghiệm',
+    shortLabel: 'Thí nghiệm',
+    icon: FlaskConical,
+    // §12.3: chỉ Chủ shop/Quản trị (manageConfig). Server cũng chặn 403.
+    visible: (p) => p.manageConfig,
   },
 ];
 
