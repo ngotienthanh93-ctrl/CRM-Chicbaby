@@ -5,30 +5,39 @@
    ============================================================================ */
 
 :root {
-  /* --- Màu (Phụ lục A) --- */
-  --c-primary: #1e6fd9;
-  --c-primary-dark: #1858ad;
-  --c-primary-weak: #e8f1fc;
-  --c-danger: #d32f2f;
-  --c-danger-weak: #fdecec;
-  --c-warning: #e67700;
-  --c-warning-weak: #fdf1e3;
-  --c-attention: #b08800;
-  --c-attention-weak: #fbf4dd;
-  --c-success: #2e7d32;
-  --c-success-weak: #e7f3e8;
-  --c-neutral: #6b7280;
-  --c-neutral-weak: #eef0f3;
+  /* --- Màu thương hiệu "1A · Hổ phách ấm" (README §5) ---
+     Vàng gradient cho hành động; nền kem ấm; chữ espresso. Sắc độ chọn để
+     đạt WCAG AA: nút/nav chữ trắng dùng vàng ĐẬM (grad-action). */
+  --c-primary: #8a5e10; /* solid gold cho chữ trắng (nút/nav) — AA */
+  --c-primary-dark: #6e4a0c;
+  --c-primary-weak: #fbf1da; /* chip vàng nhạt */
+  --c-danger: #c43d2e;
+  --c-danger-weak: #fbeae7;
+  --c-warning: #b4560e;
+  --c-warning-weak: #fbead8;
+  --c-attention: #8a6410; /* nhấn vàng / KV chip */
+  --c-attention-weak: #fbf1da;
+  --c-success: #3f8f43;
+  --c-success-weak: #e9f5e6;
+  --c-neutral: #7a6e62;
+  --c-neutral-weak: #f3ece0;
 
-  --c-text: #111827;
-  --c-text-muted: #6b7280;
+  --c-text: #43372f; /* espresso */
+  --c-text-muted: #8a7c70;
   --c-text-invert: #ffffff;
+  --c-link: #8a5e10; /* link — gold đủ tương phản trên nền trắng */
+  --c-link-hover: #6e4a0c;
 
-  --c-bg: #f7f8fa;
+  --c-bg: #faf7f2; /* nền kem */
   --c-surface: #ffffff;
-  --c-kv-bg: #f3f4f6; /* nền trường chỉ đọc KV */
-  --c-border: #e2e5ea;
-  --c-border-strong: #cbd0d8;
+  --c-subtle: #fbf8f2; /* nền phụ trong thẻ */
+  --c-kv-bg: #f5efe4; /* nền trường chỉ đọc KV (kem muted) */
+  --c-border: #f0eae1; /* hairline */
+  --c-border-strong: #e4dacb;
+
+  /* --- Gradient vàng --- */
+  --grad-brand: linear-gradient(135deg, #e0b040, #c89022); /* trang trí: logo, avatar */
+  --grad-action: linear-gradient(135deg, #b57e12, #8a5e10); /* nút/nav chữ trắng — AA */
 
   /* --- Spacing (grid 8px) --- */
   --sp-1: 4px;
@@ -39,9 +48,10 @@
   --sp-6: 32px;
   --sp-7: 48px;
 
-  /* --- Bo góc --- */
-  --r-card: 8px;
-  --r-control: 6px;
+  /* --- Bo góc (thiết kế 1A: thẻ 16 · modal 18 · control 11 · pill) --- */
+  --r-card: 16px;
+  --r-modal: 18px;
+  --r-control: 11px;
   --r-pill: 999px;
 
   /* --- Type scale (desktop) --- */
@@ -52,20 +62,21 @@
   --fs-small: 13px;
   --fs-caption: 12px;
 
-  /* --- Shadow --- */
-  --shadow-1: 0 1px 2px rgba(17, 24, 39, 0.06), 0 1px 3px rgba(17, 24, 39, 0.08);
-  --shadow-2: 0 4px 12px rgba(17, 24, 39, 0.1);
-  --shadow-pop: 0 8px 28px rgba(17, 24, 39, 0.18);
+  /* --- Shadow ấm (rgba nâu espresso) --- */
+  --shadow-1: 0 1px 3px rgba(67, 55, 47, 0.05);
+  --shadow-2: 0 2px 12px rgba(93, 74, 53, 0.07);
+  --shadow-pop: 0 24px 70px rgba(67, 55, 47, 0.28);
+  --shadow-gold: 0 4px 12px rgba(181, 126, 18, 0.35);
 
-  --focus-ring: 0 0 0 3px rgba(30, 111, 217, 0.4);
+  --focus-ring: 0 0 0 3px rgba(200, 144, 34, 0.45);
 
-  --topbar-h: 56px;
-  --sidebar-w: 232px;
+  --topbar-h: 60px;
+  --sidebar-w: 248px;
   --bottomnav-h: 60px;
 
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
-    Arial, 'Noto Sans', sans-serif;
-  --font-num: 'SF Mono', ui-monospace, 'Roboto Mono', 'DejaVu Sans Mono', Menlo, monospace;
+  --font-sans: 'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+  --font-num: 'Public Sans', 'SF Mono', ui-monospace, 'Roboto Mono', Menlo, monospace;
 }
 
 /* Mobile: body ≥16px tránh iOS auto-zoom khi focus input */
@@ -93,10 +104,26 @@ body {
   font-family: var(--font-sans);
   font-size: var(--fs-body);
   line-height: 1.5;
+  letter-spacing: -0.1px;
   color: var(--c-text);
   background: var(--c-bg);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+/* Thanh cuộn ấm */
+* {
+  scrollbar-color: var(--c-border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--c-border-strong);
+  border-radius: var(--r-pill);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
 }
 #root {
   min-height: 100vh;
@@ -114,8 +141,12 @@ button {
   cursor: pointer;
 }
 a {
-  color: var(--c-primary);
+  color: var(--c-link);
   text-decoration: none;
+  font-weight: 600;
+}
+a:hover {
+  color: var(--c-link-hover);
 }
 ul {
   margin: 0;
@@ -236,7 +267,7 @@ textarea {
   background: var(--c-surface);
   border: 1px solid var(--c-border);
   border-radius: var(--r-card);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--shadow-2);
 }
 .card-pad {
   padding: var(--sp-4);
@@ -263,25 +294,36 @@ textarea {
   white-space: nowrap;
 }
 .btn:hover {
-  background: #e2e5ea;
+  background: #ece3d4;
 }
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  box-shadow: none;
 }
 .btn-primary {
-  background: var(--c-primary);
+  background: var(--grad-action);
   color: var(--c-text-invert);
+  box-shadow: var(--shadow-gold);
 }
 .btn-primary:hover {
-  background: var(--c-primary-dark);
+  filter: brightness(1.05);
 }
 .btn-danger {
   background: var(--c-danger);
   color: var(--c-text-invert);
+  box-shadow: 0 4px 12px rgba(196, 61, 46, 0.3);
 }
 .btn-danger:hover {
   filter: brightness(0.94);
+}
+.btn-success {
+  background: linear-gradient(135deg, #45a049, #357a39);
+  color: var(--c-text-invert);
+  box-shadow: 0 4px 12px rgba(63, 143, 67, 0.32);
+}
+.btn-success:hover {
+  filter: brightness(1.05);
 }
 .btn-outline {
   background: var(--c-surface);
@@ -293,7 +335,7 @@ textarea {
 }
 .btn-ghost {
   background: transparent;
-  color: var(--c-primary);
+  color: var(--c-link);
 }
 .btn-ghost:hover {
   background: var(--c-primary-weak);
@@ -403,33 +445,33 @@ textarea {
 }
 .badge-neutral {
   background: var(--c-neutral-weak);
-  color: #3f4653;
-  border-color: #dcdfe4;
+  color: #6e5f52;
+  border-color: #e4dacb;
 }
 .badge-primary {
   background: var(--c-primary-weak);
-  color: var(--c-primary-dark);
-  border-color: #c5ddf7;
+  color: #7a5a0e;
+  border-color: #ecd9a0;
 }
 .badge-danger {
   background: var(--c-danger-weak);
-  color: #a72020;
-  border-color: #f5c9c9;
+  color: #b02b1e;
+  border-color: #f3c9c2;
 }
 .badge-warning {
   background: var(--c-warning-weak);
-  color: #a85700;
-  border-color: #f3d6b0;
+  color: #9a4a0c;
+  border-color: #f0cfa6;
 }
 .badge-attention {
   background: var(--c-attention-weak);
-  color: #856600;
-  border-color: #ecdca0;
+  color: #7a5a0e;
+  border-color: #ecd9a0;
 }
 .badge-success {
   background: var(--c-success-weak);
-  color: #206023;
-  border-color: #bfe0c1;
+  color: #2e7233;
+  border-color: #c4e1bf;
 }
 
 /* ============================================================================
@@ -457,8 +499,8 @@ textarea {
   gap: var(--sp-2);
   padding: 6px var(--sp-4);
   background: var(--c-attention-weak);
-  color: #7a5e00;
-  border-bottom: 1px solid #ecdca0;
+  color: #7a5a0e;
+  border-bottom: 1px solid #ecd9a0;
   font-size: var(--fs-small);
   font-weight: 600;
 }
@@ -565,7 +607,7 @@ textarea {
   background: var(--c-danger);
 }
 .toast-info {
-  background: #2a3444;
+  background: #43372f;
 }
 
 /* ============================================================================
@@ -575,7 +617,8 @@ textarea {
   position: fixed;
   inset: 0;
   z-index: 150;
-  background: rgba(17, 24, 39, 0.45);
+  background: rgba(67, 55, 47, 0.42);
+  backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -583,7 +626,7 @@ textarea {
 }
 .modal {
   background: var(--c-surface);
-  border-radius: var(--r-card);
+  border-radius: var(--r-modal);
   box-shadow: var(--shadow-pop);
   width: min(560px, 100%);
   max-height: 90vh;
@@ -617,7 +660,8 @@ textarea {
   position: fixed;
   inset: 0;
   z-index: 150;
-  background: rgba(17, 24, 39, 0.45);
+  background: rgba(67, 55, 47, 0.42);
+  backdrop-filter: blur(2px);
   display: flex;
   align-items: flex-end;
   justify-content: center;

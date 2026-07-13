@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, SkipForward, Split, Baby as BabyIcon, Layers, Keyboard } from 'lucide-react';
+import { Check, SkipForward, Split, Baby as BabyIcon, Layers, Keyboard, Info } from 'lucide-react';
 import { api } from '../api/client';
 import type { AllocationGroup, AllocationLine, AllocationsResponse, Baby, BulkPreviewResponse } from '../api/types';
 import { useApi } from '../hooks/useApi';
@@ -268,6 +268,16 @@ function AllocationBoard({
           <span className="keyhint"><span className="kbd">S</span> Cấp khách</span>
           <span className="keyhint"><span className="kbd">C</span> Chia SL</span>
           <span className="keyhint"><span className="kbd">Esc</span> Đóng</span>
+        </div>
+      )}
+
+      {editable && (
+        <div className="notice notice-success" style={{ marginBottom: 12 }}>
+          <Info size={16} aria-hidden />
+          <span>
+            Hệ thống chỉ <b>gợi ý</b> — mỗi dòng cần căn cứ độc lập. Không có nút “Xác nhận tất cả
+            gợi ý”; hồ sơ bé sai còn tệ hơn hồ sơ bé trống.
+          </span>
         </div>
       )}
 

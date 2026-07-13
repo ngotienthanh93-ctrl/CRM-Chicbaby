@@ -297,24 +297,52 @@ function DataQualitySection() {
             <DqCard label="Khách thiếu consent" value={state.data.customersMissingConsent} tone="warning" />
             <DqCard label="Khách chưa có bé" value={state.data.customersWithoutBaby} tone="neutral" />
           </div>
-          <div>
-            <span className="label">Chất lượng phân bổ bé (trên {state.data.allocationQuality.total} dòng)</span>
-            <div className="row-wrap" style={{ gap: 8, marginTop: 6 }}>
-              <Badge tone="success" icon={false}>
-                Đã xác nhận: {state.data.allocationQuality.confirmedPct}%
-              </Badge>
-              <Badge tone="attention" icon={false}>
-                Gợi ý chưa XN: {state.data.allocationQuality.suggestedUnconfirmedPct}%
-              </Badge>
-              <Badge tone="neutral" icon={false}>
-                Cấp khách: {state.data.allocationQuality.customerLevelPct}%
-              </Badge>
-            </div>
+          <div className="stack-2">
+            <span className="label">
+              Chất lượng phân bổ bé (trên {state.data.allocationQuality.total} dòng)
+            </span>
+            <QualityBar
+              tone="success"
+              label="Đã xác nhận"
+              pct={state.data.allocationQuality.confirmedPct}
+            />
+            <QualityBar
+              tone="attention"
+              label="Gợi ý chưa xác nhận"
+              pct={state.data.allocationQuality.suggestedUnconfirmedPct}
+            />
+            <QualityBar
+              tone="neutral"
+              label="Ở cấp khách"
+              pct={state.data.allocationQuality.customerLevelPct}
+            />
           </div>
           <p className="caption">{state.data.note}</p>
         </div>
       )}
     </section>
+  );
+}
+
+function QualityBar({
+  tone,
+  label,
+  pct,
+}: {
+  tone: 'success' | 'attention' | 'neutral';
+  label: string;
+  pct: number;
+}) {
+  return (
+    <div className="qbar">
+      <div className="qbar-head">
+        <span className="small">{label}</span>
+        <b className="num">{pct}%</b>
+      </div>
+      <span className="qbar-track" aria-hidden>
+        <span className={`qbar-fill tone-${tone}`} style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
+      </span>
+    </div>
   );
 }
 
