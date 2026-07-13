@@ -1,6 +1,6 @@
 # HANDOFF — CRM Chicbaby (bàn giao giữa các phiên)
 
-> Đọc file này ĐẦU TIÊN khi mở lại dự án ở phiên sau. Cập nhật lần cuối: **2026-07-13** (16/16 màn MVP; + **production hardening** (throttle→DB, npm audit sạch) + **worker phân bổ holdout production** (assign/run, EXP-01/04); tất cả qua Codex review. PR #1 mở).
+> Đọc file này ĐẦU TIÊN khi mở lại dự án ở phiên sau. Cập nhật lần cuối: **2026-07-13** (16/16 màn MVP + hardening + worker holdout; **+ GĐ5 backlog** (cron holdout tự động, Export có duyệt, KiotViet status cấu hình được, Gộp hồ sơ bé, **2FA/thiết bị tin cậy**) **+ GĐ6 khung webhook KiotViet** (nhận sync thật, chờ API Spike). Tất cả qua Codex impl+security review APPROVE. PR #1 mở, 2 commit mới `d8d5342`/`1c08ada`).
 > Nguồn sự thật chi tiết: [`CLAUDE.md`](../CLAUDE.md) (kiến trúc/cách chạy/nguyên tắc) + [`docs/SPEC-DIGEST.md`](SPEC-DIGEST.md) (luật nghiệp vụ + màn hình + §11 Giai đoạn 2).
 
 ## 1. Sản phẩm là gì
@@ -21,12 +21,14 @@ npm run dev                                # server 4000 + client 5173
 Tài khoản seed (pass `chicbaby@123`): `chushop · crm · cskh · marketing · trolydulieu`.
 
 ## 3. Trạng thái Git (QUAN TRỌNG)
-- Nhánh làm việc HIỆN TẠI: **`feature/mvp-phase3`** — cộng dồn TẤT CẢ (GĐ1→GĐ3.5 + hạ tầng production), **đã push**, sạch (`git status` trống). **18 commit ahead of `main`**.
-- 🔴 **PR #1 ĐANG MỞ** (`feature/mvp-phase3 → main`): https://github.com/ngotienthanh93-ctrl/CRM-Chicbaby/pull/1 — mọi commit push lên nhánh này **tự cập nhật PR**.
-- Commit gần nhất (mới→cũ): `f48d21d/05e0bcf/5503dc4` worker holdout · `d071a52/a4975b8` throttle→DB · `7e2b009/322772d/1642819` GĐ3.5 (SCR-14/15) · `a86523c/6a9416b/4f71f9a` GĐ3 (SCR-13) · GĐ2 · GĐ1 · `db059e8` hạ tầng.
-- Nhánh cũ đã push: `feature/mvp-core` (GĐ1), `feature/mvp-phase2` (GĐ2). `main` = scaffold.
+- Nhánh làm việc HIỆN TẠI: **`feature/mvp-phase3`** — cộng dồn TẤT CẢ, sạch (`git status` trống).
+- 🔴 **2 commit MỚI (GĐ5+GĐ6) CHƯA PUSH** — `git push` để cập nhật PR #1:
+  - `1c08ada` feat(sync): khung webhook KiotViet (GĐ6, chờ API Spike)
+  - `d8d5342` feat: hoàn thiện backlog — cron holdout, export có duyệt, KiotViet status, gộp bé, 2FA (GĐ5)
+- 🔴 **PR #1 ĐANG MỞ** (`feature/mvp-phase3 → main`): https://github.com/ngotienthanh93-ctrl/CRM-Chicbaby/pull/1 — commit push lên nhánh này **tự cập nhật PR**. (Bản remote hiện DỪNG ở `e382af4`; push 2 commit trên để đồng bộ.)
+- Commit cũ (mới→cũ): `e382af4` handoff · `f48d21d/05e0bcf/5503dc4` worker holdout · `d071a52` throttle→DB · GĐ3.5/GĐ3/GĐ2/GĐ1.
 - `.env`, `.codex-review/`, `node_modules/`, `*.tsbuildinfo` đã gitignore — không commit.
-- `gh` CLI **đã đăng nhập** (account `ngotienthanh93-ctrl`) — tạo/cập nhật PR được ngay.
+- `gh` CLI **đã đăng nhập** (account `ngotienthanh93-ctrl`).
 
 ## 4. Đã build (16/16 màn MVP, backend đầy đủ)
 **GĐ1 (MVP lõi)** — SCR-01 Đăng nhập · SCR-02 Việc hôm nay · SCR-03 Danh sách khách · SCR-04 Khách 360 · SCR-05 Hồ sơ bé · SCR-07 Phân bổ bé · SCR-08 Cấu hình chu kỳ · SCR-09 Đại lý. Backend: 51 model Prisma (CRM-owned + `kv_*` mirror + hạ tầng), 3 engine (nhắc tiêu dùng, phân bổ bé 3 cấp, nhắc nhập bù), RBAC + masking server-side, CHECK constraint + audit append-only.
@@ -43,17 +45,28 @@ Tài khoản seed (pass `chicbaby@123`): `chushop · crm · cskh · marketing ·
 - **Chống brute-force login/reauth lưu DB** (`throttle_entries`): key sha256; `reserveAttemptDb` reserve-then-verify **đóng cửa sổ burst song song** (verify scrypt NGOÀI transaction, không cạn pool); `runSerializable` retry P2034 (áp cả config PUT/rollback); scheduled cleanup 10' (index.ts) + dọn cơ hội. `npm audit` = **0**.
 - **Worker phân bổ holdout production** (SCR-15, không migration): `server/src/modules/experiments/assignment.service.ts` — derive 6 signal (VIP=`wholesale_contact`, org `at_risk`, `hen_lai`, `service_contact`, `kv_orders`) → loại trừ qua `isExcludedFromExperiment` → gán nhóm hash ổn định (EXP-01) → upsert `ExperimentAssignment` (khách GIỜ bị loại trừ được GỠ). Endpoint `POST /api/experiments/:id/assign` & `POST /api/experiments/run` (reauth) + nút UI SCR-15. `generate.ts` đồng bộ `isHoldout` cả path **tái dùng** → việc holdout không lọt SCR-02 (EXP-04).
 
-**Chất lượng:** test **223 pass** (vitest). Đã qua Codex review đối kháng (Claude ↔ Codex) — TẤT CẢ APPROVE:
-- GĐ1: impl (10 fix) + security (7 fix). GĐ2: impl (7 fix). GĐ3 (SCR-13): impl (4 fix) + security (2 fix).
-- GĐ3.5 (SCR-14/15): impl 4 vòng (recalculate-guard, race→Serializable, default đọc config, validate range) + security 3 vòng (GET role-aware, range/rollback + max bounds, TOCTOU→conditional update, preview cap, wire exclusion vào seed).
-- GĐ4: throttle impl (retry P2034, hash key, cleanup) + security (đóng burst reserve-then-verify, scheduled cleanup). Worker holdout impl (gỡ assignment khách bị loại trừ, đồng bộ isHoldout path reuse).
+**GĐ5 (hoàn thiện backlog làm-được-trong-code — commit `d8d5342`)** —
+- **Cron worker holdout tự động**: `scheduler.ts` self-scheduling, chu kỳ từ config `experiment.cron_interval_minutes` (0=tắt); `run.service.ts` orchestration DÙNG CHUNG với `POST /api/experiments/run`; **DB lease + fencing token** (`generationLock.ts`, bảng `scheduler_leases`) chống chạy chồng.
+- **Export dữ liệu CÓ DUYỆT** (màn mới `/export-du-lieu`): đề xuất→chủ shop duyệt/từ chối/thu hồi (reauth)→tải trong hạn (audit MỖI lần, TTL+maxRows config). RBAC server-side (`viewSensitive`; marketing 403), conditional-write chống TOCTOU + audit atomic, audit KHÔNG lưu free-text (SEC-10/12). Backend `modules/exports/` + engine `exportRequest.ts`.
+- **KiotViet order-status cấu hình được**: bỏ hardcode `isOpenOrderStatus` → config `sync.open_order_statuses` (fallback DEFAULT).
+- **Gộp hồ sơ bé** (Khách 360 `BabyTab`): chủ shop duyệt (`approveMerge`+reauth), CÙNG khách; dời FK an toàn (consultation/consent/allocation; usage/avoidance master-thắng; reminder_source→customer_level); gap-fill BẢO THỦ (KHÔNG đụng định danh tuổi — #1/#10); soft-delete bé trùng; optimistic lock; audit không lưu giá trị bé thô. Engine `babyMerge.ts` + `babyMerge.service.ts`.
+- **2FA/TOTP + thiết bị tin cậy** (màn mới `/bao-mat`): TOTP RFC6238 + base32 tự implement (no-dep, `lib/totp.ts`/`base32.ts`, test vector chuẩn); secret mã hóa AES-256-GCM, backup code hash dùng-một-lần; **login 2 bước** (`Session.pendingTwoFactor` không truy cập API + challenge); throttle mã 2FA TOÀN CỤC theo userId (chống xoay-IP); thiết bị tin cậy có hạn (cookie `tdid`); self-service enroll/disable/regenerate. `modules/auth/twofa.*` + `session.service.ts` login two-step.
 
-## 5. CHƯA làm (backlog — schema phần lớn đã dựng sẵn)
-- **Cron chạy worker holdout tự động**: hiện chạy THỦ CÔNG qua nút SCR-15 / `POST /api/experiments/run`. Cần lịch (cron) chạy định kỳ (phân nhóm + sinh việc). *(Logic đã sẵn, chỉ thiếu bộ hẹn giờ.)*
-- **Rate-limit ở EDGE** (WAF/reverse-proxy theo IP/subnet) cho tấn công brute-force thể tích lớn; đa-instance nên tách scheduled-cleanup throttle thành cron riêng (hiện `setInterval` trong index.ts, đủ cho 1 instance).
-- **Webhook KiotViet THẬT** (hiện mirror nạp bằng seed; có `sync_events`/`sync_state` sẵn; full-resync/webhook đang mô phỏng state). Kèm: chuẩn hóa **status đơn KiotViet** (hiện `isOpenOrderStatus` trong `assignment.service.ts` dùng danh sách best-effort — nên cấu hình khi có API Spike thật).
-- **2FA/thiết bị tin cậy đầy đủ** (hiện session cookie + reauth throttle DB).
-- **Export dữ liệu có duyệt** (workflow đầy đủ — có model `ExportRequest`) · **gộp hồ sơ bé** (hiện chỉ gắn cờ `suspectedDuplicateBaby`).
+**GĐ6 (khung webhook KiotViet — commit `1c08ada`, chờ API Spike)** — thay mirror-nạp-bằng-seed bằng nhận sync THẬT.
+- **Nhận**: `POST /api/sync/kiotviet/webhook` PUBLIC máy-tới-máy (KHÔNG phiên), verify chữ ký HMAC-SHA256 (secret AES-GCM ở `api_credentials`), body raw (mount TRƯỚC `express.json`), enqueue IDEMPOTENT (`SyncEvent.idempotencyKey` unique + findFirst theo tuple, an toàn `kvModifiedAt` null + race). Rate-limit toàn cục (middleware trước raw), cache secret/config, cap 500 event/1MB.
+- **Worker** (`sync.processor.ts`): claim chống double-process, retry→dead_letter theo config, ATOMIC (mirror+trạng thái+`sync_state` cùng transaction), reclaim event kẹt. Handler tham chiếu khách+sản phẩm upsert theo **envelope objectId** (không payload.id) + stale-check `kvModifiedAt`. Hóa đơn/dòng/trả STUB→dead-letter (chờ Spike). Tự chạy theo lịch (`sync.scheduler.ts`) + trigger tay `POST /api/sync/process`; set secret `POST /api/sync/webhook-secret` (chu_shop+reauth, ≥32 ký tự).
+- **Engine thuần** `syncEvent.ts` (verify chữ ký/retry-deadletter/normalize) + test. `SCR-12` dashboard sẵn có giờ phản ánh queue/dead-letter thật.
+
+**Chất lượng:** test **261 pass** (vitest) + client build sạch. Đã qua Codex review đối kháng (Claude ↔ Codex) — TẤT CẢ APPROVE:
+- GĐ1: impl (10) + security (7). GĐ2: impl (7). GĐ3 (SCR-13): impl (4) + security (2). GĐ3.5 (SCR-14/15): impl 4 vòng + security 3 vòng. GĐ4: throttle + worker holdout.
+- **GĐ5**: impl (6 fix: DB-cũ config, TOCTOU export, atomic audit, gộp-bé version-lock/datePrecision, audit-scrub, downloadable-null) + security (403 gate, throttle userId toàn cục chống xoay-IP, cap list, free-text audit). **2FA** riêng: impl (null-expiry trusted, migration dedup) + security.
+- **GĐ6**: impl (idempotency null-safe, retry, atomic transaction, config-read, **bug null-byte 0x00 trong idempotencyKey**) + security (public endpoint DoS→rate-limit/cache, payload validation, envelope-objectId, stale-check, secret ≥32).
+
+## 5. CHƯA làm (backlog còn lại — ĐỀU vướng phụ thuộc NGOÀI code)
+Backlog làm-được-trong-code đã CẠN (cron/export/KiotViet-status/gộp-bé/2FA/khung-webhook đã xong GĐ5+GĐ6). Còn lại:
+- **Webhook KiotViet — LAST-MILE cần API Spike thật của shop** (PRD Gate 2): khung nhận/worker ĐÃ dựng (GĐ6). Chờ Spike để: (a) **mapping payload→mirror hóa đơn/dòng/trả** (hiện stub→dead-letter, hiện ở dashboard "cần mapping"); (b) **tên header + định dạng chữ ký** KiotViet chính xác (hiện `x-kiotviet-signature`+HMAC-SHA256 hex, CẤU HÌNH ĐƯỢC `sync.webhook_signature_header`); (c) set secret thật qua `POST /api/sync/webhook-secret`.
+- **Rate-limit ở EDGE** (WAF/reverse-proxy theo IP/subnet) — hạ tầng NGOÀI app (app-level đã có global rate-limit + cache cho webhook, throttle DB cho login/reauth). Đa-instance: scheduled-cleanup throttle vẫn `setInterval` (đủ 1 instance); cron holdout + sync worker ĐÃ an toàn đa-instance (lease/claim).
+- (Tùy nhu cầu) Export **gộp hồ sơ bé cross-customer**, 2FA bắt buộc theo vai, v.v.
 
 ## 6. Cách làm việc đã dùng (giữ nguyên ở phiên sau)
 Quy trình đã chứng minh hiệu quả cho dự án này:
@@ -63,14 +76,16 @@ Quy trình đã chứng minh hiệu quả cho dự án này:
 4. **Commit theo cụm** trên nhánh riêng (không commit thẳng `main`), trailer `Co-Authored-By`. Chỉ commit/push khi người dùng yêu cầu.
 
 ## 7. Việc nên làm tiếp (đề xuất thứ tự)
-1. **Cron chạy worker holdout tự động** — hẹn giờ gọi `POST /api/experiments/run` (hoặc `assignExperiment`+generate trực tiếp) định kỳ. Logic đã sẵn, chỉ thiếu bộ hẹn giờ.
-2. **Webhook KiotViet thật** (cần API Spike thật của shop — xem PRD Gate 2) + chuẩn hóa status đơn KiotViet.
-3. **Rate-limit EDGE** cho production; tách throttle-cleanup thành cron khi chạy đa-instance.
-4. Export có duyệt · gộp hồ sơ bé · 2FA đầy đủ (khi có nhu cầu).
-> **PR #1 đang mở** — review & merge vào `main` khi sẵn sàng.
+0. **PUSH 2 commit mới** (`d8d5342`, `1c08ada`) lên `feature/mvp-phase3` → cập nhật PR #1 (remote đang dừng ở `e382af4`). `git push`.
+1. **Khi có API Spike KiotViet thật**: (a) viết mapping payload→mirror cho hóa đơn/dòng/trả trong `KV_MIRROR_HANDLERS` (`sync.processor.ts`) — hiện stub→dead-letter; (b) chỉnh `sync.webhook_signature_header` + logic verify khớp chữ ký thật KiotViet (`engines/syncEvent.ts:verifyWebhookSignature`); (c) đăng ký webhook + set secret thật.
+2. **Rate-limit EDGE** (WAF/proxy) cho production; cân nhắc tách throttle-cleanup thành cron khi đa-instance.
+3. **Review & merge PR #1** vào `main` khi sẵn sàng (chốt MVP+GĐ5+GĐ6).
+4. (Tùy nhu cầu) gộp hồ sơ bé cross-customer, 2FA bắt buộc theo vai, UAT §10 chính thức.
 
 ## 8. Cách RESUME ở phiên sau
 - Mở thư mục `~/Projects/CRM - Chicbaby/dự án CRM` trong Claude Code.
 - Bộ nhớ dự án tự nạp (Claude tự nhớ). Nếu cần, chỉ cần nói: **"đọc docs/HANDOFF.md rồi tiếp tục dự án CRM Chicbaby"**.
-- Kiểm nhanh: `git branch` (đang ở `feature/mvp-phase3`) · `git status` · `docker compose up -d` · `npm run dev` → http://localhost:5173, login `chushop / chicbaby@123`. 2 màn mới: `/cau-hinh-he-thong`, `/thi-nghiem` (chỉ chu_shop).
-- Việc tiếp: cron chạy worker tự động · rate-limit EDGE · webhook KiotViet thật. Xem §7. (16/16 màn MVP + hardening + worker holdout đã xong; PR #1 đang mở.)
+- Kiểm nhanh: `git branch` (đang ở `feature/mvp-phase3`) · `git status` · `docker compose up -d` · `npm run dev` → http://localhost:5173, login `chushop / chicbaby@123`.
+- Màn mới GĐ5: **`/bao-mat`** (2FA + thiết bị tin cậy, mọi vai) · **`/export-du-lieu`** (export có duyệt, vai viewSensitive) · gộp bé ở Khách 360 (chu_shop). Cũ: `/cau-hinh-he-thong`, `/thi-nghiem`.
+- 🔴 **2 commit GĐ5+GĐ6 CHƯA PUSH** (xem §3/§7.0) — `git push` để đồng bộ PR #1.
+- Việc tiếp: push · (khi có Spike) mapping webhook KiotViet thật · rate-limit EDGE · merge PR #1. Xem §7. (16/16 màn MVP + GĐ5 backlog + GĐ6 khung webhook đã xong, Codex APPROVE; 261 test.)
