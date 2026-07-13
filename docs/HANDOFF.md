@@ -1,6 +1,6 @@
 # HANDOFF — CRM Chicbaby (bàn giao giữa các phiên)
 
-> Đọc file này ĐẦU TIÊN khi mở lại dự án ở phiên sau. Cập nhật lần cuối: **2026-07-13** (GĐ3 **SCR-14 + SCR-15 xong** — 16/16 màn; + **production hardening**: login/reauth throttle → DB, npm audit sạch; tất cả qua Codex impl + security review).
+> Đọc file này ĐẦU TIÊN khi mở lại dự án ở phiên sau. Cập nhật lần cuối: **2026-07-13** (16/16 màn MVP; + **production hardening** (throttle→DB, npm audit sạch) + **worker phân bổ holdout production** (assign/run, EXP-01/04); tất cả qua Codex review. PR #1 mở).
 > Nguồn sự thật chi tiết: [`CLAUDE.md`](../CLAUDE.md) (kiến trúc/cách chạy/nguyên tắc) + [`docs/SPEC-DIGEST.md`](SPEC-DIGEST.md) (luật nghiệp vụ + màn hình + §11 Giai đoạn 2).
 
 ## 1. Sản phẩm là gì
@@ -44,7 +44,7 @@ Tài khoản seed (pass `chicbaby@123`): `chushop · crm · cskh · marketing ·
 - GĐ3.5 (SCR-14/15): `codex-impl-review` APPROVE 4 vòng (recalculate-guard, race version→Serializable, config default đọc active, validate range holdout, không gửi holdoutRatio khi chưa chỉnh; dispute wiring holdout=backlog được chấp nhận) + `codex-security-review` APPROVE 3 vòng (GET role-aware, range/rollback validation + max bounds, PUT/status TOCTOU→conditional update, preview cap, wire exclusion predicate vào seed).
 
 ## 5. CHƯA làm (backlog — schema đã dựng sẵn)
-- **Worker phân bổ holdout PRODUCTION** (🔴 quan trọng): hiện CHỈ seed gán `experiment_assignments` + điền `holdoutCustomerIds` cho generation (đã enforce 6 luật loại trừ qua `isExcludedFromExperiment`). Chưa có worker chạy-thật: với thí nghiệm `running`, gán nhóm bằng `assignExperimentGroup`, **loại khách qua `isExcludedFromExperiment`** (cần signals thật: isVip/agencyAtRisk/callback/complaint/đơn-giao-nợ/service_contact — một số chưa có cột trong schema ⇒ cần model + migration), rồi truyền tập holdout vào `generate.ts`. Predicate + `enforceHardExclusions` đã sẵn ở `engines/experiment.ts`.
+- ~~**Worker phân bổ holdout PRODUCTION**~~ **XONG 2026-07-13** (không cần migration — 6 signal derive được: VIP=`wholesale_contact` role, at_risk org, `hen_lai`, `service_contact`, kv_orders): `assignment.service.ts` (`assignExperiment`/`computeHoldoutCustomerIds`/`resolveGenerationAssignees`) + endpoint `POST /api/experiments/:id/assign` & `POST /api/experiments/run` (reauth) + nút UI trên SCR-15. `generate.ts` đồng bộ `isHoldout` cả path tái dùng (EXP-04). Khách bị loại trừ được gỡ khỏi assignment. Qua Codex impl-review APPROVE. **CÒN**: chạy tự động theo lịch (cron) thay vì thủ công; `hasOpenOrderDeliveryDebt` dùng danh sách status KiotViet best-effort (nên cấu hình khi có API Spike thật).
 - **Webhook KiotViet THẬT** (hiện mirror nạp bằng seed; có `sync_events`/`sync_state` sẵn; full-resync/webhook đang mô phỏng state).
 - 2FA/thiết bị tin cậy đầy đủ (hiện session cookie; reauth + login lockout **đã lưu DB** — `throttle_entries`).
 - Export dữ liệu có duyệt (workflow đầy đủ) · gộp hồ sơ bé (hiện chỉ gắn cờ `suspectedDuplicateBaby`).
@@ -58,12 +58,13 @@ Quy trình đã chứng minh hiệu quả cho dự án này:
 4. **Commit theo cụm** trên nhánh riêng (không commit thẳng `main`), trailer `Co-Authored-By`. Chỉ commit/push khi người dùng yêu cầu.
 
 ## 7. Việc nên làm tiếp (đề xuất thứ tự)
-1. **Worker phân bổ holdout production** (§5) — nối `assignExperimentGroup` + `isExcludedFromExperiment` vào sinh việc thật; cần thêm signals khách (isVip…) ⇒ có thể phải thêm cột/model + migration. (Lưu ý: hiện CHƯA có pipeline sinh việc production — generate.ts mới chỉ chạy trong seed.)
-2. ~~reauth/login lockout → DB; npm audit~~ **XONG 2026-07-13.** Còn: rate-limit EDGE cho production; **mở PR** (nhánh `feature/mvp-phase3` = 16/16 màn + hardening).
-3. Tích hợp **webhook KiotViet thật** (cần API Spike thật của shop — xem PRD Gate 2).
+1. ~~Worker phân bổ holdout production~~ **XONG 2026-07-13** (§5). Còn: cron chạy tự động (hiện thủ công qua nút SCR-15 / `POST /api/experiments/run`).
+2. ~~reauth/login lockout → DB; npm audit~~ **XONG 2026-07-13.** Còn: rate-limit EDGE cho production.
+3. Tích hợp **webhook KiotViet thật** (cần API Spike thật của shop — xem PRD Gate 2); chuẩn hóa status đơn KiotViet (thay danh sách best-effort trong assignment.service).
+4. PR **#1** đã mở (`feature/mvp-phase3 → main`). Các commit mới push tự cập nhật PR.
 
 ## 8. Cách RESUME ở phiên sau
 - Mở thư mục `~/Projects/CRM - Chicbaby/dự án CRM` trong Claude Code.
 - Bộ nhớ dự án tự nạp (Claude tự nhớ). Nếu cần, chỉ cần nói: **"đọc docs/HANDOFF.md rồi tiếp tục dự án CRM Chicbaby"**.
 - Kiểm nhanh: `git branch` (đang ở `feature/mvp-phase3`) · `git status` · `docker compose up -d` · `npm run dev` → http://localhost:5173, login `chushop / chicbaby@123`. 2 màn mới: `/cau-hinh-he-thong`, `/thi-nghiem` (chỉ chu_shop).
-- Việc tiếp: **worker phân bổ holdout production** + `npm audit` + mở PR. Xem §7. (16/16 màn MVP đã xong.)
+- Việc tiếp: cron chạy worker tự động · rate-limit EDGE · webhook KiotViet thật. Xem §7. (16/16 màn MVP + hardening + worker holdout đã xong; PR #1 đang mở.)
