@@ -72,6 +72,10 @@ const NUMERIC_BOUNDS: Record<string, NumericBound> = {
   'purchase.verification_window_days': { min: 1, max: 90, integer: true },
   'intent.recheck_days': { min: 1, max: 90, integer: true },
   'sync.polling_interval_minutes': { min: 1, max: 1440, integer: true },
+  // Webhook KiotViet: trần thử (1–20), batch (1–1000), chu kỳ worker (0=tắt..1440).
+  'sync.max_sync_attempts': { min: 1, max: 20, integer: true },
+  'sync.processor_batch_size': { min: 1, max: 1000, integer: true },
+  'sync.processor_interval_minutes': { min: 0, max: 1440, integer: true },
   'sync.initial_load_months': { min: 1, max: 120, integer: true },
   'claim.claimed_ttl_minutes': { min: 1, max: 1440, integer: true },
   'claim.in_progress_ttl_minutes': { min: 1, max: 1440, integer: true },

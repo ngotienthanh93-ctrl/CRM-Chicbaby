@@ -1043,11 +1043,14 @@ async function main() {
       // done: mô phỏng độ trễ xử lý (updatedAt sau createdAt vài giây) để tính p95.
       const updatedAt =
         plan.status === 'done' ? new Date(createdAt.getTime() + (1500 + k * 200)) : createdAt;
+      const objectId = `${objectType}_evt_${evSeq}`;
       await prisma.syncEvent.create({
         data: {
           objectType,
-          objectId: `${objectType}_evt_${evSeq}`,
+          objectId,
           kvModifiedAt: createdAt,
+          // 🔴 SYNC-03: khóa idempotency canonical (khớp syncIdempotencyKey: [objectType, objectId, epoch]).
+          idempotencyKey: JSON.stringify([objectType, objectId, String(createdAt.getTime())]),
           eventId: `WH_${evSeq}`,
           payload: { demo: true, objectType } as never,
           status: plan.status as never,

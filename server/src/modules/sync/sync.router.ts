@@ -9,7 +9,10 @@ import { requireAuth, requirePermission, requireRole } from '../../middleware/au
 import { writeAudit } from '../../security/audit';
 import { verifyReauth } from '../../security/reauth';
 import { formatVnDateTime } from '../../lib/datetime';
+import { encryptSecret } from '../../lib/crypto';
 import { scrubSyncError } from './sync.helpers';
+import { processSyncEventsBatch } from './sync.processor';
+import { invalidateWebhookConfigCache } from './webhook.receiver';
 
 export const syncRouter = Router();
 // 🔴 §11.4: chỉ chu_shop + tro_ly_du_lieu.
@@ -187,6 +190,49 @@ syncRouter.post(
       reason: 'Full resync (chủ shop, đã xác minh mật khẩu)',
     });
     res.json({ ok: true, startedAt: formatVnDateTime(now), note: 'Đã lên lịch đồng bộ lại toàn bộ (mô phỏng MVP).' });
+  }),
+);
+
+// ---------- POST /webhook-secret ----------
+// 🔴 Đặt/đổi SECRET verify chữ ký webhook KiotViet — CHỈ chủ shop + reauth. Lưu MÃ HÓA (AES-GCM), KHÔNG thô.
+// 🔴 CWE-326/521: secret HMAC webhook phải ĐỦ MẠNH (≥32 ký tự) — chống dò offline nếu chữ ký/secret lộ.
+const secretSchema = z.object({ secret: z.string().min(32).max(200), password: z.string().min(1) });
+syncRouter.post(
+  '/webhook-secret',
+  requireRole('chu_shop'),
+  asyncHandler(async (req, res) => {
+    const parsed = secretSchema.safeParse(req.body);
+    if (!parsed.success) throw badRequest('Secret tối thiểu 32 ký tự + cần nhập lại mật khẩu.');
+    await verifyReauth(req.auth!.userId, parsed.data.password, req.ip);
+    const secretCipher = encryptSecret(parsed.data.secret);
+    const cred = await prisma.apiCredential.findFirst({ where: { provider: 'kiotviet' } });
+    if (cred) await prisma.apiCredential.update({ where: { id: cred.id }, data: { secretCipher } });
+    else await prisma.apiCredential.create({ data: { provider: 'kiotviet', secretCipher } });
+    invalidateWebhookConfigCache(); // secret mới có hiệu lực ngay (không chờ cache TTL)
+    await writeAudit({
+      userId: req.auth!.userId,
+      action: 'sync.webhook_secret_set',
+      objectType: 'api_credential',
+      objectId: cred?.id ?? null,
+    });
+    res.json({ ok: true }); // KHÔNG trả lại secret/cipher.
+  }),
+);
+
+// ---------- POST /process ----------
+// Chạy TAY một lượt worker xử lý hàng đợi sync_events (bổ trợ worker tự động). manageSync + audit.
+syncRouter.post(
+  '/process',
+  asyncHandler(async (req, res) => {
+    const result = await processSyncEventsBatch();
+    await writeAudit({
+      userId: req.auth!.userId,
+      action: 'sync.process',
+      objectType: 'sync_event',
+      objectId: null,
+      newValue: result,
+    });
+    res.json(result);
   }),
 );
 

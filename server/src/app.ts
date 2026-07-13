@@ -16,6 +16,7 @@ import { customersRouter } from './modules/customers/customers.router';
 import { mergeRouter } from './modules/customers/merge.router';
 import { consultationsRouter } from './modules/consultations/consultations.router';
 import { syncRouter } from './modules/sync/sync.router';
+import { syncWebhookRouter } from './modules/sync/webhook.receiver';
 import { babiesRouter } from './modules/babies/babies.router';
 import { allocationsRouter } from './modules/allocations/allocations.router';
 import { organizationsRouter } from './modules/organizations/organizations.router';
@@ -46,6 +47,9 @@ export function createApp() {
       credentials: true, // cookie phiên
     }),
   );
+  // 🔴 Webhook KiotViet dùng body RAW (verify chữ ký HMAC) ⇒ mount TRƯỚC express.json để không bị parse mất
+  // raw body. Endpoint máy-tới-máy, xác thực bằng chữ ký (không phiên) — KHÔNG đặt sau lớp auth.
+  app.use('/api/sync/kiotviet', syncWebhookRouter);
   app.use(express.json());
   // 🔴 SEC-FIX-5 (CSRF CWE-352): BỎ express.urlencoded — API chỉ nhận JSON.
   // Loại bề mặt form-CSRF (HTML form chỉ gửi được application/x-www-form-urlencoded / multipart).

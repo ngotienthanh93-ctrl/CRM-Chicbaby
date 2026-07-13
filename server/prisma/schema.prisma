@@ -1092,6 +1092,9 @@ model SyncEvent {
   objectType   String
   objectId     String
   kvModifiedAt DateTime?
+  // 🔴 SYNC-03: khóa idempotency KHÔNG-NULL = objectType\0objectId\0(kvModifiedAt epoch | 'NULL'). Postgres unique
+  // KHÔNG chặn trùng nếu một cột unique là NULL ⇒ dùng khóa dẫn xuất non-null này để enqueue idempotent chắc chắn.
+  idempotencyKey String   @unique
   eventId      String?
   payload      Json
   status       SyncStatus @default(pending)

@@ -3,6 +3,7 @@ import { env } from './lib/env';
 import { createApp } from './app';
 import { cleanupStaleThrottle } from './modules/auth/throttle-store';
 import { startExperimentScheduler } from './modules/experiments/scheduler';
+import { startSyncProcessor } from './modules/sync/sync.scheduler';
 
 const app = createApp();
 
@@ -25,6 +26,9 @@ throttleCleanupTimer.unref(); // không giữ tiến trình sống chỉ vì tim
 // 🔴 §7.1: cron worker holdout tự động (phân nhóm + sinh việc) — chu kỳ đọc từ config experiment.cron_interval_minutes.
 const experimentScheduler = startExperimentScheduler();
 
+// 🔴 §11.4: worker xử lý hàng đợi webhook KiotViet (sync_events) — chu kỳ đọc từ sync.processor_interval_minutes.
+const syncProcessor = startSyncProcessor();
+
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
     // eslint-disable-next-line no-console
@@ -41,6 +45,7 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
     clearInterval(throttleCleanupTimer);
     experimentScheduler.stop();
+    syncProcessor.stop();
     server.close(() => process.exit(0));
   });
 }
