@@ -1,0 +1,740 @@
+/* ============================================================================
+   CRM Chicbaby — Design System (Phụ lục A UI Spec v1.3)
+   Grid 8px · card 8px · input/button 6px · trạng thái = MÀU + ICON + CHỮ
+   Touch target ≥44px mobile · body ≥16px mobile (tránh iOS zoom) · WCAG AA
+   ============================================================================ */
+
+:root {
+  /* --- Màu (Phụ lục A) --- */
+  --c-primary: #1e6fd9;
+  --c-primary-dark: #1858ad;
+  --c-primary-weak: #e8f1fc;
+  --c-danger: #d32f2f;
+  --c-danger-weak: #fdecec;
+  --c-warning: #e67700;
+  --c-warning-weak: #fdf1e3;
+  --c-attention: #b08800;
+  --c-attention-weak: #fbf4dd;
+  --c-success: #2e7d32;
+  --c-success-weak: #e7f3e8;
+  --c-neutral: #6b7280;
+  --c-neutral-weak: #eef0f3;
+
+  --c-text: #111827;
+  --c-text-muted: #6b7280;
+  --c-text-invert: #ffffff;
+
+  --c-bg: #f7f8fa;
+  --c-surface: #ffffff;
+  --c-kv-bg: #f3f4f6; /* nền trường chỉ đọc KV */
+  --c-border: #e2e5ea;
+  --c-border-strong: #cbd0d8;
+
+  /* --- Spacing (grid 8px) --- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+
+  /* --- Bo góc --- */
+  --r-card: 8px;
+  --r-control: 6px;
+  --r-pill: 999px;
+
+  /* --- Type scale (desktop) --- */
+  --fs-h1: 24px;
+  --fs-h2: 20px;
+  --fs-h3: 18px;
+  --fs-body: 15px;
+  --fs-small: 13px;
+  --fs-caption: 12px;
+
+  /* --- Shadow --- */
+  --shadow-1: 0 1px 2px rgba(17, 24, 39, 0.06), 0 1px 3px rgba(17, 24, 39, 0.08);
+  --shadow-2: 0 4px 12px rgba(17, 24, 39, 0.1);
+  --shadow-pop: 0 8px 28px rgba(17, 24, 39, 0.18);
+
+  --focus-ring: 0 0 0 3px rgba(30, 111, 217, 0.4);
+
+  --topbar-h: 56px;
+  --sidebar-w: 232px;
+  --bottomnav-h: 60px;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, 'Noto Sans', sans-serif;
+  --font-num: 'SF Mono', ui-monospace, 'Roboto Mono', 'DejaVu Sans Mono', Menlo, monospace;
+}
+
+/* Mobile: body ≥16px tránh iOS auto-zoom khi focus input */
+@media (max-width: 640px) {
+  :root {
+    --fs-h1: 22px;
+    --fs-h2: 18px;
+    --fs-h3: 16px;
+    --fs-body: 16px;
+  }
+}
+
+/* --- Reset nhẹ --- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  color: var(--c-text);
+  background: var(--c-bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+#root {
+  min-height: 100vh;
+}
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+a {
+  color: var(--c-primary);
+  text-decoration: none;
+}
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: var(--fs-body);
+}
+
+/* Focus rõ ràng — KHÔNG outline:none (a11y) */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--r-control);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* --- Typography helpers --- */
+.h1 {
+  font-size: var(--fs-h1);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.h2 {
+  font-size: var(--fs-h2);
+  font-weight: 700;
+  letter-spacing: -0.005em;
+}
+.h3 {
+  font-size: var(--fs-h3);
+  font-weight: 600;
+}
+.small {
+  font-size: var(--fs-small);
+}
+.caption {
+  font-size: var(--fs-caption);
+  color: var(--c-text-muted);
+}
+.muted {
+  color: var(--c-text-muted);
+}
+.eyebrow {
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+/* ============================================================================
+   Layout utilities
+   ============================================================================ */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.stack-2 {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.stack-4 {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.row-4 {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+.row-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.spacer {
+  flex: 1 1 auto;
+}
+.wrap-anywhere {
+  overflow-wrap: anywhere;
+}
+.scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ============================================================================
+   Card
+   ============================================================================ */
+.card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-1);
+}
+.card-pad {
+  padding: var(--sp-4);
+}
+
+/* ============================================================================
+   Buttons — touch target ≥44px mobile
+   ============================================================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: 40px;
+  padding: 0 var(--sp-4);
+  border: 1px solid transparent;
+  border-radius: var(--r-control);
+  font-weight: 600;
+  font-size: var(--fs-body);
+  line-height: 1;
+  background: var(--c-neutral-weak);
+  color: var(--c-text);
+  transition: background 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+  white-space: nowrap;
+}
+.btn:hover {
+  background: #e2e5ea;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--c-primary);
+  color: var(--c-text-invert);
+}
+.btn-primary:hover {
+  background: var(--c-primary-dark);
+}
+.btn-danger {
+  background: var(--c-danger);
+  color: var(--c-text-invert);
+}
+.btn-danger:hover {
+  filter: brightness(0.94);
+}
+.btn-outline {
+  background: var(--c-surface);
+  border-color: var(--c-border-strong);
+  color: var(--c-text);
+}
+.btn-outline:hover {
+  background: var(--c-neutral-weak);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--c-primary);
+}
+.btn-ghost:hover {
+  background: var(--c-primary-weak);
+}
+.btn-sm {
+  min-height: 32px;
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-small);
+}
+.btn-lg {
+  min-height: 52px;
+  padding: 0 var(--sp-5);
+  font-size: var(--fs-h3);
+}
+.btn-block {
+  width: 100%;
+}
+.btn-icon {
+  min-width: 40px;
+  padding: 0 var(--sp-2);
+}
+
+@media (max-width: 640px) {
+  .btn {
+    min-height: 44px;
+  }
+  .btn-sm {
+    min-height: 40px;
+  }
+  .btn-icon {
+    min-width: 44px;
+  }
+}
+
+/* ============================================================================
+   Form controls
+   ============================================================================ */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.label {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--c-text);
+}
+.input,
+.select,
+.textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px var(--sp-3);
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-control);
+  background: var(--c-surface);
+  color: var(--c-text);
+}
+.textarea {
+  min-height: 88px;
+  padding: var(--sp-3);
+  resize: vertical;
+}
+.input:focus-visible,
+.select:focus-visible,
+.textarea:focus-visible {
+  border-color: var(--c-primary);
+  box-shadow: var(--focus-ring);
+}
+/* Trường KV chỉ đọc: nền xám, disabled */
+.input:disabled,
+.input.readonly {
+  background: var(--c-kv-bg);
+  color: var(--c-text-muted);
+  cursor: not-allowed;
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  cursor: pointer;
+  min-height: 44px;
+}
+.check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--c-primary);
+}
+
+/* ============================================================================
+   Badge / Pill — trạng thái = MÀU + ICON + CHỮ
+   ============================================================================ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  line-height: 1.4;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.badge svg {
+  flex: 0 0 auto;
+}
+.badge-neutral {
+  background: var(--c-neutral-weak);
+  color: #3f4653;
+  border-color: #dcdfe4;
+}
+.badge-primary {
+  background: var(--c-primary-weak);
+  color: var(--c-primary-dark);
+  border-color: #c5ddf7;
+}
+.badge-danger {
+  background: var(--c-danger-weak);
+  color: #a72020;
+  border-color: #f5c9c9;
+}
+.badge-warning {
+  background: var(--c-warning-weak);
+  color: #a85700;
+  border-color: #f3d6b0;
+}
+.badge-attention {
+  background: var(--c-attention-weak);
+  color: #856600;
+  border-color: #ecdca0;
+}
+.badge-success {
+  background: var(--c-success-weak);
+  color: #206023;
+  border-color: #bfe0c1;
+}
+
+/* ============================================================================
+   KV read-only badge
+   ============================================================================ */
+.kv-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  background: var(--c-kv-bg);
+  color: var(--c-text-muted);
+  border: 1px solid var(--c-border);
+}
+
+/* ============================================================================
+   Demo banner (⚠️ Dữ liệu minh họa)
+   ============================================================================ */
+.demo-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px var(--sp-4);
+  background: var(--c-attention-weak);
+  color: #7a5e00;
+  border-bottom: 1px solid #ecdca0;
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+
+/* ============================================================================
+   Skeleton (loading)
+   ============================================================================ */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--c-neutral-weak);
+  border-radius: var(--r-control);
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.65),
+    transparent
+  );
+  animation: shimmer 1.3s infinite;
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+}
+
+/* ============================================================================
+   Empty / Error state
+   ============================================================================ */
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--sp-3);
+  padding: var(--sp-7) var(--sp-4);
+  color: var(--c-text-muted);
+}
+.state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--r-pill);
+  background: var(--c-neutral-weak);
+  color: var(--c-neutral);
+}
+.state.state-error .state-icon {
+  background: var(--c-danger-weak);
+  color: var(--c-danger);
+}
+.state-title {
+  font-size: var(--fs-h3);
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+/* ============================================================================
+   Toast
+   ============================================================================ */
+.toast-wrap {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--bottomnav-h) + 16px);
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  width: min(92vw, 420px);
+}
+@media (min-width: 641px) {
+  .toast-wrap {
+    bottom: 24px;
+  }
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-control);
+  color: var(--c-text-invert);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.toast-success {
+  background: var(--c-success);
+}
+.toast-error {
+  background: var(--c-danger);
+}
+.toast-info {
+  background: #2a3444;
+}
+
+/* ============================================================================
+   Modal + BottomSheet
+   ============================================================================ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  background: rgba(17, 24, 39, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+}
+.modal {
+  background: var(--c-surface);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-pop);
+  width: min(560px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border-bottom: 1px solid var(--c-border);
+  position: sticky;
+  top: 0;
+  background: var(--c-surface);
+}
+.modal-body {
+  padding: var(--sp-4);
+}
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border-top: 1px solid var(--c-border);
+  flex-wrap: wrap;
+}
+
+/* Bottom-sheet (mobile hành động phụ) */
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  background: rgba(17, 24, 39, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.sheet {
+  background: var(--c-surface);
+  border-radius: 16px 16px 0 0;
+  box-shadow: var(--shadow-pop);
+  width: 100%;
+  max-width: 560px;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: var(--sp-2) var(--sp-4) calc(var(--sp-4) + env(safe-area-inset-bottom));
+}
+.sheet-grip {
+  width: 40px;
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: var(--c-border-strong);
+  margin: var(--sp-2) auto var(--sp-3);
+}
+
+/* ============================================================================
+   Tabs
+   ============================================================================ */
+.tabs {
+  display: flex;
+  gap: var(--sp-1);
+  border-bottom: 1px solid var(--c-border);
+  overflow-x: auto;
+}
+.tab {
+  padding: 10px var(--sp-3);
+  border: none;
+  background: transparent;
+  color: var(--c-text-muted);
+  font-weight: 600;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  min-height: 44px;
+}
+.tab[aria-selected='true'] {
+  color: var(--c-primary);
+  border-bottom-color: var(--c-primary);
+}
+
+/* Segmented toggle */
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--c-neutral-weak);
+  border-radius: var(--r-control);
+}
+.segmented button {
+  border: none;
+  background: transparent;
+  color: var(--c-text-muted);
+  font-weight: 600;
+  padding: 8px var(--sp-3);
+  border-radius: 4px;
+  min-height: 40px;
+}
+.segmented button[aria-pressed='true'] {
+  background: var(--c-surface);
+  color: var(--c-primary);
+  box-shadow: var(--shadow-1);
+}
+
+/* ============================================================================
+   Table
+   ============================================================================ */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-small);
+}
+.table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--c-text-muted);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--c-border);
+  white-space: nowrap;
+}
+.table td {
+  padding: var(--sp-3);
+  border-bottom: 1px solid var(--c-border);
+  vertical-align: middle;
+}
+.table tbody tr:hover {
+  background: var(--c-bg);
+}
+
+/* ============================================================================
+   Key-hint (phím tắt)
+   ============================================================================ */
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border-strong);
+  border-bottom-width: 2px;
+  font-family: var(--font-num);
+  font-size: 11px;
+  font-weight: 600;
+  color: #3f4653;
+}
+
+/* Divider */
+.hr {
+  height: 1px;
+  background: var(--c-border);
+  border: none;
+  margin: 0;
+}

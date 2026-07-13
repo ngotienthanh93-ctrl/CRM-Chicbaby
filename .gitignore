@@ -1,6 +1,13 @@
 # Dependencies
 node_modules/
 
+# Build output (TypeScript -> dist)
+dist/
+server/dist/
+
+# TypeScript incremental build info (artifact, không commit)
+*.tsbuildinfo
+
 # Environment variables (KHÔNG commit file .env chứa secret)
 .env
 .env.local
@@ -17,3 +24,6 @@ npm-debug.log*
 # Editor
 .vscode/
 .idea/
+
+# Codex review sessions (local, không commit)
+.codex-review/

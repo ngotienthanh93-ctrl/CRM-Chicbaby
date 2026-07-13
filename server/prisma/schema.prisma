@@ -1,0 +1,1315 @@
+// CRM Chicbaby — Prisma schema (§2 SPEC-DIGEST).
+// Quy ước: bảng snake_case (@@map). Cột giữ camelCase (mặc định Prisma) — raw SQL quote "camelCase".
+// Soft-delete: deletedAt cho dữ liệu CRM. Optimistic lock: version cho bảng sửa đồng thời.
+// KV mirror (kv_*) CHỈ ĐỌC ở tầng nghiệp vụ; chỉ worker sync/seed được ghi.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum RoleKey {
+  chu_shop
+  crm_officer
+  cskh
+  marketing
+  tro_ly_du_lieu
+}
+
+enum UserStatus {
+  active
+  disabled
+}
+
+enum CustomerRoleType {
+  retail_customer
+  wholesale_contact
+}
+
+enum CustomerRoleSource {
+  auto_from_kv
+  manual
+}
+
+enum PreferredChannel {
+  zalo
+  call
+  sms
+}
+
+enum RetentionStatus {
+  active
+  masked
+}
+
+enum PhoneType {
+  primary
+  zalo
+  receiver
+  backup
+}
+
+enum DataSource {
+  KV
+  CRM
+}
+
+enum SourceSystem {
+  kiotviet
+}
+
+enum LinkMethod {
+  auto
+  manual
+}
+
+enum DatePrecision {
+  exact
+  month_estimated
+}
+
+enum InfoSource {
+  me_ke
+  bac_si_chan_doan
+  nhan_vien_quan_sat
+}
+
+enum BabyAssignmentMode {
+  baby_specific
+  multi_audience
+  not_baby_applicable
+}
+
+enum ConfidenceLevel {
+  high
+  medium
+  low
+}
+
+enum AssignmentStatus {
+  auto_assigned
+  suggested
+  confirmed
+  customer_level
+  not_applicable
+}
+
+enum AssignmentSource {
+  auto_single_baby
+  auto_age_match
+  manual
+  unassigned
+}
+
+enum OrgStatus {
+  active
+  slow
+  at_risk
+  paused
+  lost
+  collecting
+}
+
+enum DeclineReason {
+  gia_cao
+  doi_thu_chao_gia
+  hang_ban_cham
+  shop_het_hang
+  giao_hang_cham
+  cong_no
+  dai_ly_dong_cua
+  khong_lien_he_duoc
+  khac
+}
+
+enum ReasonStatus {
+  unknown
+  investigating
+  confirmed
+  cannot_contact
+}
+
+enum EscalationLevel {
+  L1
+  L2
+  L3
+  L4
+  L5
+}
+
+enum OrgContactRole {
+  chu_shop
+  nguoi_dat_hang
+  ke_toan
+  nguoi_nhan_hang
+}
+
+enum FollowUpTargetType {
+  customer
+  organization
+}
+
+enum ReminderType {
+  consumption
+  replenishment
+  consultation_followup
+  agency_investigation
+}
+
+enum FollowUpStatus {
+  cho_toi_han
+  den_han
+  da_lien_he
+  hen_lai
+  da_mua_lai
+  dong
+}
+
+enum CloseReason {
+  khong_dung_nua
+  doi_sp
+  mua_noi_khac
+  khong_phan_hoi
+  be_da_lon
+  khac
+}
+
+enum FrequencyCapScope {
+  proactive_sales_contact
+  marketing_contact
+  service_contact
+}
+
+enum ClaimState {
+  unclaimed
+  claimed
+  in_progress
+  completed
+  released
+}
+
+enum VerificationStatus {
+  pending
+  verified
+  not_found
+}
+
+enum AttributionStatus {
+  attributed
+  not_attributed
+}
+
+enum CustomerReport {
+  already_purchased
+  intends_to_purchase
+}
+
+enum Temperature {
+  nong
+  am
+  lanh
+}
+
+enum ConsultationResult {
+  da_chot
+  chua_chot
+  tu_choi
+}
+
+enum ConsentStatus {
+  granted
+  revoked
+}
+
+enum ConsentSubjectType {
+  customer
+  baby
+}
+
+enum ExperimentStatus {
+  draft
+  running
+  paused
+  completed
+}
+
+enum ExperimentGroup {
+  treatment
+  holdout
+}
+
+enum ExportStatus {
+  pending
+  approved
+  rejected
+  expired
+}
+
+enum SyncStatus {
+  pending
+  processing
+  done
+  error
+  dead_letter
+}
+
+enum KvInvoiceStatus {
+  pending
+  completed
+  cancelled
+  partially_returned
+  fully_returned
+  unknown
+}
+
+enum ConfigAppliesTo {
+  new_only
+  recalculate
+}
+
+// ============================================================
+// 2.1 Định danh & truy cập
+// ============================================================
+
+model Role {
+  id        String   @id @default(cuid())
+  key       RoleKey  @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
+
+  @@map("roles")
+}
+
+model User {
+  id           String     @id @default(cuid())
+  username     String     @unique
+  passwordHash String
+  fullName     String
+  roleId       String
+  status       UserStatus @default(active)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  createdBy    String?
+
+  // 🔴 2FA (TOTP): bật/tắt + secret MÃ HÓA (AES-GCM, không lưu thô). Chỉ bật sau khi xác minh mã đầu tiên.
+  twoFactorEnabled    Boolean   @default(false)
+  twoFactorSecret     String? // ciphertext `iv:tag:ct`; NULL khi chưa/đã tắt
+  twoFactorEnrolledAt DateTime?
+
+  role        Role                 @relation(fields: [roleId], references: [id])
+  sessions    Session[]
+  backupCodes TwoFactorBackupCode[]
+
+  @@map("users")
+}
+
+// 🔴 Mã dự phòng 2FA (backup code) — DÙNG MỘT LẦN khi mất authenticator. Lưu HASH (HMAC), không lưu thô.
+model TwoFactorBackupCode {
+  id        String    @id @default(cuid())
+  userId    String
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("two_factor_backup_codes")
+}
+
+model Session {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  device     String?
+  ip         String?
+  revokedAt  DateTime?
+  lastSeenAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+  // 🔴 2FA two-step: phiên tạo sau bước mật khẩu nhưng CHƯA qua 2FA ⇒ pending=true, KHÔNG truy cập API được.
+  // Hoàn tất 2FA ⇒ pending=false. validateSession từ chối phiên pending.
+  pendingTwoFactor Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model TrustedDevice {
+  id          String    @id @default(cuid())
+  userId      String
+  deviceLabel String?
+  // 🔴 fingerprint = HASH(token thiết bị tin cậy) — cookie mang token thô, DB chỉ giữ hash (như session).
+  fingerprint String    @unique
+  // Hết hạn tin cậy (sau đó phải nhập lại 2FA). NULL cũ = coi như không giới hạn (dữ liệu trước migration).
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+  @@map("trusted_devices")
+}
+
+// ============================================================
+// 2.2 Khách hàng
+// ============================================================
+
+model CustomerCrm {
+  id               String            @id @default(cuid())
+  fullName         String
+  displayName      String?
+  facebook         String?
+  zalo             String?
+  preferredChannel PreferredChannel?
+  retentionStatus  RetentionStatus   @default(active)
+  note             String?
+  careAddress      String?
+  dormant          Boolean           @default(false)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  createdBy        String?
+  deletedAt        DateTime?
+
+  roles                 CustomerRole[]
+  phones                CustomerPhone[]
+  externalIdentities    CustomerExternalIdentity[]
+  tagAssignments        CustomerTagAssignment[]
+  babies                BabyProfile[]
+  consultations         Consultation[]
+  consents              CustomerConsent[]
+  consentEvents         ConsentEvent[]
+  followUps             FollowUp[]
+  orgRoles              CustomerOrganizationRole[]
+  reminderSources       ReminderSource[]
+  experimentAssignments ExperimentAssignment[]
+
+  @@map("customers_crm")
+}
+
+model CustomerRole {
+  id         String             @id @default(cuid())
+  customerId String
+  role       CustomerRoleType
+  source     CustomerRoleSource @default(manual)
+  createdAt  DateTime           @default(now())
+
+  customer CustomerCrm @relation(fields: [customerId], references: [id])
+
+  @@unique([customerId, role])
+  @@map("customer_roles")
+}
+
+model CustomerPhone {
+  id              String     @id @default(cuid())
+  customerId      String
+  phoneRaw        String
+  phoneNormalized String
+  type            PhoneType  @default(primary)
+  isPrimary       Boolean    @default(false)
+  source          DataSource @default(CRM)
+  createdAt       DateTime   @default(now())
+
+  customer CustomerCrm @relation(fields: [customerId], references: [id])
+
+  // DM-05: index KHÔNG unique (gia đình dùng chung số — CUS-13)
+  @@index([phoneNormalized])
+  @@index([customerId])
+  @@map("customer_phones")
+}
+
+model CustomerExternalIdentity {
+  id                 String       @id @default(cuid())
+  customerId         String
+  sourceSystem       SourceSystem @default(kiotviet)
+  externalCustomerId String
+  externalCode       String?
+  isPrimary          Boolean      @default(false)
+  linkedMethod       LinkMethod   @default(auto)
+  linkedBy           String?
+  linkedAt           DateTime?
+  unlinkedAt         DateTime?
+  matchConfidence    Int?
+  createdAt          DateTime     @default(now())
+
+  customer CustomerCrm @relation(fields: [customerId], references: [id])
+
+  @@unique([sourceSystem, externalCustomerId])
+  @@index([externalCustomerId])
+  @@map("customer_external_identities")
+}
+
+model CustomerTagAssignment {
+  id         String   @id @default(cuid())
+  customerId String
+  tag        String
+  createdAt  DateTime @default(now())
+
+  customer CustomerCrm @relation(fields: [customerId], references: [id])
+
+  @@unique([customerId, tag])
+  @@map("customer_tag_assignments")
+}
+
+model MergeHistory {
+  id         String   @id @default(cuid())
+  masterId   String
+  mergedId   String
+  mergedBy   String
+  mergedAt   DateTime @default(now())
+  revertible Boolean  @default(true)
+
+  @@index([masterId])
+  @@map("merge_history")
+}
+
+// 🔴 §11.3 MERGE-05/CUS-19: khi ĐÃ phát sinh dữ liệu mới sau gộp mà cần tách ⇒ tạo ticket xử lý tay.
+model MergeUnmergeTicket {
+  id             String   @id @default(cuid())
+  mergeHistoryId String?
+  masterId       String
+  mergedId       String
+  reason         String
+  status         String   @default("open") // open | resolved | rejected
+  requestedBy    String
+  resolvedBy     String?
+  resolvedAt     DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([status])
+  @@map("merge_unmerge_tickets")
+}
+
+// ============================================================
+// 2.3 Hồ sơ bé (NHẠY CẢM)
+// ============================================================
+
+model BabyProfile {
+  id                   String        @id @default(cuid())
+  customerId           String
+  babyName             String?
+  birthDate            DateTime?
+  ageMonthsAtRecording Int?
+  ageRecordedAt        DateTime?
+  estimatedBirthMonth  DateTime?
+  datePrecision        DatePrecision @default(month_estimated)
+  gender               String?
+  allergies            String?
+  allergiesSource      InfoSource?
+  allergiesRecordedBy  String?
+  allergiesRecordedAt  DateTime?
+  condition            String?
+  conditionSource      InfoSource?
+  conditionRecordedBy  String?
+  conditionRecordedAt  DateTime?
+  note                 String?
+  // 🔴 §11.3 MERGE: KHÔNG gộp hồ sơ bé khi gộp khách — giữ riêng, gắn cờ nghi trùng để người dùng kiểm.
+  suspectedDuplicateBaby Boolean     @default(false)
+  version              Int           @default(0)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  createdBy            String?
+  deletedAt            DateTime?
+
+  customer             CustomerCrm                 @relation(fields: [customerId], references: [id])
+  usages               BabyProductUsage[]
+  avoidances           BabyProductAvoidance[]
+  allocations          InvoiceItemBabyAllocation[] @relation("AllocationBaby")
+  suggestedAllocations InvoiceItemBabyAllocation[] @relation("AllocationSuggestedBaby")
+  consultations        Consultation[]
+  consents             CustomerConsent[]
+  consentEvents        ConsentEvent[]
+  reminderSources      ReminderSource[]
+
+  @@index([customerId])
+  @@map("baby_profiles")
+}
+
+model BabyProductUsage {
+  id          String   @id @default(cuid())
+  babyId      String
+  kvProductId String
+  createdAt   DateTime @default(now())
+
+  baby BabyProfile @relation(fields: [babyId], references: [id])
+
+  @@unique([babyId, kvProductId])
+  @@map("baby_product_usages")
+}
+
+model BabyProductAvoidance {
+  id          String   @id @default(cuid())
+  babyId      String
+  kvProductId String
+  reason      String?
+  createdAt   DateTime @default(now())
+
+  baby BabyProfile @relation(fields: [babyId], references: [id])
+
+  @@unique([babyId, kvProductId])
+  @@map("baby_product_avoidances")
+}
+
+// ============================================================
+// 2.4 Làm giàu sản phẩm
+// ============================================================
+
+model ReplacementGroup {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+
+  productMetas    ProductCrmMeta[]
+  reminderSources ReminderSource[]
+
+  @@map("replacement_groups")
+}
+
+model ProductCrmMeta {
+  id                   String             @id @default(cuid())
+  kvProductId          String             @unique
+  babyAssignmentMode   BabyAssignmentMode @default(multi_audience)
+  suggestedCycleDays   Int?
+  suggestionSampleSize Int?
+  suggestionConfidence ConfidenceLevel?
+  suggestionMethod     String?
+  approvedCycleDays    Int?
+  approvedBy           String?
+  approvedAt           DateTime?
+  cycleMinDays         Int?
+  cycleMaxDays         Int?
+  replacementGroupId   String?
+  autoRemindEnabled    Boolean            @default(true)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  product          KvProduct         @relation(fields: [kvProductId], references: [kvProductId])
+  replacementGroup ReplacementGroup? @relation(fields: [replacementGroupId], references: [id])
+
+  @@map("product_crm_meta")
+}
+
+// ============================================================
+// 2.5 Phân bổ hóa đơn cho bé
+// ============================================================
+
+model InvoiceItemBabyAllocation {
+  id                   String           @id @default(cuid())
+  // 🔴 FIX-6 (§8.5/§2.5): 1 dòng hóa đơn có thể chia cho NHIỀU bé => KHÔNG unique.
+  // Bất biến Σ assignedQuantity mọi row của dòng == kv line quantity được enforce ở tầng service.
+  kvInvoiceLineId      String
+  babyId               String?
+  suggestedBabyId      String?
+  assignmentStatus     AssignmentStatus
+  assignmentConfidence ConfidenceLevel  @default(low)
+  assignmentSource     AssignmentSource @default(unassigned)
+  assignedQuantity     Decimal          @db.Decimal(10, 2)
+  consumptionStartDate DateTime
+  cycleDaysOverride    Int?
+  confirmedBy          String?
+  confirmedAt          DateTime?
+  skipCount            Int              @default(0)
+  version              Int              @default(0)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  invoiceLine   KvInvoiceLine       @relation(fields: [kvInvoiceLineId], references: [kvInvoiceLineId])
+  baby          BabyProfile?        @relation("AllocationBaby", fields: [babyId], references: [id])
+  suggestedBaby BabyProfile?        @relation("AllocationSuggestedBaby", fields: [suggestedBabyId], references: [id])
+  history       AllocationHistory[]
+
+  @@index([babyId])
+  @@index([kvInvoiceLineId])
+  @@map("invoice_item_baby_allocations")
+}
+
+model AllocationHistory {
+  id           String   @id @default(cuid())
+  allocationId String
+  oldValue     Json?
+  newValue     Json?
+  changedBy    String
+  changedAt    DateTime @default(now())
+  reason       String?
+
+  allocation InvoiceItemBabyAllocation @relation(fields: [allocationId], references: [id])
+
+  @@index([allocationId])
+  @@map("allocation_history")
+}
+
+// ============================================================
+// 2.6 Tổ chức / đại lý
+// ============================================================
+
+model Organization {
+  id                       String           @id @default(cuid())
+  orgName                  String
+  mainAddress              String?
+  province                 String?
+  district                 String?
+  tier                     String?
+  sizeEstimate             String?
+  hasPhysicalStore         Boolean?
+  competingBrands          String?
+  competitorOffers         String?
+  complaints               String?
+  status                   OrgStatus        @default(collecting)
+  paused                   Boolean          @default(false)
+  pausedReason             String?
+  pausedUntil              DateTime?
+  supplierStockoutAffected Boolean          @default(false)
+  declineReason            DeclineReason?
+  declineReasonNote        String?
+  reasonStatus             ReasonStatus     @default(unknown)
+  escalationLevel          EscalationLevel?
+  // Trường tính toán (engine cập nhật)
+  medianCadenceDays        Int?
+  cadenceSampleSize        Int?
+  lastPurchaseAt           DateTime?
+  revenue90d               Decimal?         @db.Decimal(14, 2)
+  revenuePrev90d           Decimal?         @db.Decimal(14, 2)
+  revenueTrend             String?
+  recordedBy               String?
+  recordedAt               DateTime?
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+  createdBy                String?
+  deletedAt                DateTime?
+
+  contacts        OrganizationContact[]
+  excludedPeriods OrganizationExcludedPeriod[]
+  orgRoles        CustomerOrganizationRole[]
+  followUps       FollowUp[]
+
+  @@map("organizations")
+}
+
+model OrganizationContact {
+  id             String         @id @default(cuid())
+  organizationId String
+  name           String
+  role           OrgContactRole
+  phone          String?
+  isPrimary      Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@map("organization_contacts")
+}
+
+model CustomerOrganizationRole {
+  id             String         @id @default(cuid())
+  customerId     String
+  organizationId String
+  role           OrgContactRole
+  createdAt      DateTime       @default(now())
+
+  customer     CustomerCrm  @relation(fields: [customerId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([customerId, organizationId, role])
+  @@map("customer_organization_roles")
+}
+
+model OrganizationExcludedPeriod {
+  id             String   @id @default(cuid())
+  organizationId String
+  fromDate       DateTime
+  toDate         DateTime
+  reason         String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@map("organization_excluded_periods")
+}
+
+// ============================================================
+// 2.7 Nhắc & vòng đời việc (bảng nhắc CHUNG)
+// ============================================================
+
+model FollowUp {
+  id                String             @id @default(cuid())
+  targetType        FollowUpTargetType
+  customerId        String?
+  organizationId    String?
+  reminderType      ReminderType
+  dueDate           DateTime
+  assigneeId        String?
+  status            FollowUpStatus     @default(cho_toi_han)
+  priority          Int                @default(0)
+  result            String?
+  closeReason       CloseReason?
+  frequencyCapScope FrequencyCapScope  @default(proactive_sales_contact)
+  contactedAt       DateTime?
+  reminderCount     Int                @default(0)
+  attemptCount      Int                @default(0)
+  content           String?
+  // Claim / lease (chống 2 người gọi trùng)
+  claimState        ClaimState         @default(unclaimed)
+  claimedBy         String?
+  claimedAt         DateTime?
+  lastHeartbeatAt   DateTime?
+  claimExpiresAt    DateTime?
+  // Holdout
+  isHoldout         Boolean            @default(false)
+  dormantFlag       Boolean            @default(false)
+  version           Int                @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  createdBy         String?
+
+  customer        CustomerCrm?           @relation(fields: [customerId], references: [id])
+  organization    Organization?          @relation(fields: [organizationId], references: [id])
+  stateHistory    FollowUpStateHistory[]
+  conversions     FollowUpConversion[]
+  reminderSources ReminderSource[]
+
+  @@index([assigneeId, dueDate, status])
+  @@index([customerId, dueDate])
+  @@map("follow_ups")
+}
+
+model FollowUpStateHistory {
+  id         String          @id @default(cuid())
+  followUpId String
+  oldStatus  FollowUpStatus?
+  newStatus  FollowUpStatus
+  changedBy  String?
+  changedAt  DateTime        @default(now())
+  note       String?
+
+  followUp FollowUp @relation(fields: [followUpId], references: [id])
+
+  @@index([followUpId])
+  @@map("follow_up_state_history")
+}
+
+model FollowUpConversion {
+  id                 String             @id @default(cuid())
+  followUpId         String
+  invoiceId          String?
+  invoiceLineId      String?
+  verificationStatus VerificationStatus @default(pending)
+  attributionStatus  AttributionStatus  @default(not_attributed)
+  customerReport     CustomerReport?
+  matchedAt          DateTime?
+  matchMethod        LinkMethod?
+  createdAt          DateTime           @default(now())
+
+  followUp FollowUp @relation(fields: [followUpId], references: [id])
+
+  // 🔴 CONV-02: một hóa đơn/dòng KHÔNG xác minh cho nhiều follow-up
+  @@unique([invoiceId])
+  @@unique([invoiceLineId])
+  @@index([followUpId])
+  @@map("follow_up_conversions")
+}
+
+model ReminderSource {
+  id                    String           @id @default(cuid())
+  // 🔴 FIX-3 (REM-R-04/SYNC-03): khóa nguồn XÁC ĐỊNH để generate idempotent (chạy 2 lần không nhân đôi).
+  // = customerId|babyKey|replacementGroupId|invoiceId. Nullable-unique (Postgres cho nhiều NULL).
+  sourceKey             String?          @unique
+  followUpId            String?
+  customerId            String
+  babyId                String?
+  babyKey               String // babyId hoặc 'customer_level'
+  replacementGroupId    String?
+  invoiceId             String
+  assignmentStatus      AssignmentStatus
+  confidenceLevel       ConfidenceLevel  @default(low)
+  expectedDepletionDate DateTime
+  remindDate            DateTime
+  contentLine           String
+  createdAt             DateTime         @default(now())
+
+  followUp         FollowUp?            @relation(fields: [followUpId], references: [id])
+  customer         CustomerCrm          @relation(fields: [customerId], references: [id])
+  baby             BabyProfile?         @relation(fields: [babyId], references: [id])
+  replacementGroup ReplacementGroup?    @relation(fields: [replacementGroupId], references: [id])
+  lines            ReminderSourceLine[]
+
+  @@index([customerId])
+  @@index([followUpId])
+  @@map("reminder_sources")
+}
+
+model ReminderSourceLine {
+  id               String   @id @default(cuid())
+  reminderSourceId String
+  kvInvoiceLineId  String
+  allocationId     String?
+  createdAt        DateTime @default(now())
+
+  reminderSource ReminderSource @relation(fields: [reminderSourceId], references: [id])
+
+  @@index([reminderSourceId])
+  @@map("reminder_source_lines")
+}
+
+// ============================================================
+// 2.8 Tư vấn
+// ============================================================
+
+model Consultation {
+  id              String              @id @default(cuid())
+  customerId      String
+  babyId          String?
+  issue           String
+  temperature     Temperature?
+  result          ConsultationResult?
+  reasonNoBuy     String?
+  nextContactDate DateTime?
+  note            String?
+  version         Int                 @default(0)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  createdBy       String?
+  deletedAt       DateTime?
+
+  customer        CustomerCrm                  @relation(fields: [customerId], references: [id])
+  baby            BabyProfile?                 @relation(fields: [babyId], references: [id])
+  advisedProducts ConsultationAdvisedProduct[]
+  versions        ConsultationVersion[]
+
+  @@index([customerId])
+  @@map("consultations")
+}
+
+model ConsultationAdvisedProduct {
+  id             String @id @default(cuid())
+  consultationId String
+  kvProductId    String
+
+  consultation Consultation @relation(fields: [consultationId], references: [id])
+
+  @@unique([consultationId, kvProductId])
+  @@map("consultation_advised_products")
+}
+
+model ConsultationVersion {
+  id             String   @id @default(cuid())
+  consultationId String
+  snapshot       Json
+  changedBy      String?
+  changedAt      DateTime @default(now())
+
+  consultation Consultation @relation(fields: [consultationId], references: [id])
+
+  @@index([consultationId])
+  @@map("consultation_versions")
+}
+
+// ============================================================
+// 2.9 Consent
+// ============================================================
+
+model ConsentType {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  name      String
+  createdAt DateTime @default(now())
+
+  consents      CustomerConsent[]
+  consentEvents ConsentEvent[]
+
+  @@map("consent_types")
+}
+
+model CustomerConsent {
+  id             String             @id @default(cuid())
+  customerId     String
+  consentTypeId  String
+  subjectType    ConsentSubjectType @default(customer)
+  babyId         String?
+  representative String?
+  noticeVersion  String?
+  channel        String?
+  status         ConsentStatus
+  grantedAt      DateTime?
+  revokedAt      DateTime?
+  evidence       String?
+  recordedBy     String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  customer    CustomerCrm  @relation(fields: [customerId], references: [id])
+  consentType ConsentType  @relation(fields: [consentTypeId], references: [id])
+  baby        BabyProfile? @relation(fields: [babyId], references: [id])
+
+  @@index([customerId])
+  @@map("customer_consents")
+}
+
+model ConsentEvent {
+  id             String             @id @default(cuid())
+  customerId     String
+  consentTypeId  String
+  subjectType    ConsentSubjectType @default(customer)
+  babyId         String?
+  status         ConsentStatus
+  representative String?
+  noticeVersion  String?
+  channel        String?
+  evidence       String?
+  recordedBy     String?
+  createdAt      DateTime           @default(now())
+
+  customer    CustomerCrm  @relation(fields: [customerId], references: [id])
+  consentType ConsentType  @relation(fields: [consentTypeId], references: [id])
+  baby        BabyProfile? @relation(fields: [babyId], references: [id])
+
+  @@index([customerId])
+  @@map("consent_events")
+}
+
+// ============================================================
+// 2.10 Thí nghiệm (holdout)
+// ============================================================
+
+model Experiment {
+  id                 String           @id @default(cuid())
+  name               String
+  startAt            DateTime
+  endAt              DateTime?
+  holdoutRatio       Decimal          @db.Decimal(4, 3)
+  status             ExperimentStatus @default(draft)
+  assignmentUnit     String           @default("customer_id")
+  createdBy          String
+  approvedBy         String?
+  minSampleTreatment Int              @default(0)
+  minSampleHoldout   Int              @default(0)
+  exclusionRules     Json?
+  createdAt          DateTime         @default(now())
+
+  assignments ExperimentAssignment[]
+
+  @@map("experiments")
+}
+
+model ExperimentAssignment {
+  id           String          @id @default(cuid())
+  experimentId String
+  customerId   String
+  group        ExperimentGroup
+  assignedAt   DateTime        @default(now())
+
+  experiment Experiment  @relation(fields: [experimentId], references: [id])
+  customer   CustomerCrm @relation(fields: [customerId], references: [id])
+
+  @@unique([experimentId, customerId])
+  @@map("experiment_assignments")
+}
+
+// ============================================================
+// 2.11 Hạ tầng
+// ============================================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  objectType String
+  objectId   String?
+  oldValue   Json?
+  newValue   Json?
+  reason     String?
+  ip         String?
+  device     String?
+  createdAt  DateTime @default(now())
+
+  @@index([objectType, objectId])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
+
+model ConfigurationVersion {
+  id            String   @id @default(cuid())
+  key           String
+  value         Json
+  version       Int      @default(1)
+  effectiveFrom DateTime @default(now())
+  isActive      Boolean  @default(true)
+  createdBy     String?
+  createdAt     DateTime @default(now())
+
+  @@index([key, isActive])
+  @@map("configuration_versions")
+}
+
+model ConfigurationChangeLog {
+  id        String          @id @default(cuid())
+  key       String
+  oldValue  Json?
+  newValue  Json?
+  changedBy String
+  reason    String?
+  appliesTo ConfigAppliesTo @default(new_only)
+  changedAt DateTime        @default(now())
+
+  @@index([key])
+  @@map("configuration_change_logs")
+}
+
+model ExportRequest {
+  id              String       @id @default(cuid())
+  requestedBy     String
+  datasetScope    String
+  filtersSnapshot Json?
+  reason          String
+  status          ExportStatus @default(pending)
+  approvedBy      String?
+  expiresAt       DateTime?
+  downloadCount   Int          @default(0)
+  revokedAt       DateTime?
+  createdAt       DateTime     @default(now())
+
+  @@map("export_requests")
+}
+
+model SyncEvent {
+  id           String     @id @default(cuid())
+  objectType   String
+  objectId     String
+  kvModifiedAt DateTime?
+  // 🔴 SYNC-03: khóa idempotency KHÔNG-NULL = objectType\0objectId\0(kvModifiedAt epoch | 'NULL'). Postgres unique
+  // KHÔNG chặn trùng nếu một cột unique là NULL ⇒ dùng khóa dẫn xuất non-null này để enqueue idempotent chắc chắn.
+  idempotencyKey String   @unique
+  eventId      String?
+  payload      Json
+  status       SyncStatus @default(pending)
+  attempts     Int        @default(0)
+  error        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([objectType, objectId, kvModifiedAt])
+  @@map("sync_events")
+}
+
+model SyncState {
+  id         String    @id @default(cuid())
+  objectType String    @unique
+  lastCursor String?
+  lastSyncAt DateTime?
+  updatedAt  DateTime  @updatedAt
+
+  @@map("sync_state")
+}
+
+model SyncReconciliation {
+  id          String   @id @default(cuid())
+  periodLabel String
+  objectType  String
+  kvCount     Int?
+  crmCount    Int?
+  mismatch    Int?
+  detail      Json?
+  createdAt   DateTime @default(now())
+
+  @@map("sync_reconciliation")
+}
+
+model ApiCredential {
+  id           String   @id @default(cuid())
+  provider     String   @default("kiotviet")
+  secretCipher String?
+  meta         Json?
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+
+  @@map("api_credentials")
+}
+
+// ============================================================
+// 2.12 Mirror KiotViet (kv_* — CHỈ ĐỌC)
+// ============================================================
+
+model KvCustomer {
+  id            String    @id @default(cuid())
+  kvCustomerId  String    @unique
+  code          String?
+  name          String
+  phone         String?
+  customerGroup String?
+  address       String?
+  kvModifiedAt  DateTime?
+  kvDeleted     Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+
+  invoices KvInvoice[]
+
+  @@map("kv_customers")
+}
+
+model KvProduct {
+  id            String    @id @default(cuid())
+  kvProductId   String    @unique
+  code          String?
+  name          String
+  unit          String?
+  price         Decimal?  @db.Decimal(14, 2)
+  categoryId    String?
+  ageFromMonths Int?
+  ageToMonths   Int?
+  kvDeleted     Boolean   @default(false)
+  kvModifiedAt  DateTime?
+  createdAt     DateTime  @default(now())
+
+  invoiceLines KvInvoiceLine[]
+  crmMeta      ProductCrmMeta?
+
+  @@map("kv_products")
+}
+
+model KvCategory {
+  id           String   @id @default(cuid())
+  kvCategoryId String   @unique
+  name         String
+  createdAt    DateTime @default(now())
+
+  @@map("kv_categories")
+}
+
+model KvInvoice {
+  id           String          @id @default(cuid())
+  kvInvoiceId  String          @unique
+  code         String?
+  kvCustomerId String?
+  purchaseDate DateTime
+  total        Decimal         @db.Decimal(14, 2)
+  status       KvInvoiceStatus @default(completed)
+  kvModifiedAt DateTime?
+  kvDeleted    Boolean         @default(false)
+  createdAt    DateTime        @default(now())
+
+  customer KvCustomer?     @relation(fields: [kvCustomerId], references: [kvCustomerId])
+  lines    KvInvoiceLine[]
+
+  @@index([purchaseDate])
+  @@index([kvCustomerId])
+  @@map("kv_invoices")
+}
+
+model KvInvoiceLine {
+  id              String   @id @default(cuid())
+  kvInvoiceLineId String   @unique
+  kvInvoiceId     String
+  kvProductId     String
+  quantity        Decimal  @db.Decimal(10, 2)
+  price           Decimal  @db.Decimal(14, 2)
+  discount        Decimal? @db.Decimal(14, 2)
+  createdAt       DateTime @default(now())
+
+  invoice     KvInvoice                   @relation(fields: [kvInvoiceId], references: [kvInvoiceId])
+  product     KvProduct                   @relation(fields: [kvProductId], references: [kvProductId])
+  // 🔴 FIX-6: 1 dòng -> NHIỀU allocation (chia SL cho nhiều bé).
+  allocations InvoiceItemBabyAllocation[]
+
+  @@index([kvProductId])
+  @@index([kvInvoiceId])
+  @@map("kv_invoice_lines")
+}
+
+model KvReturn {
+  id           String    @id @default(cuid())
+  kvReturnId   String    @unique
+  code         String?
+  kvInvoiceId  String?
+  kvCustomerId String?
+  returnDate   DateTime
+  total        Decimal   @db.Decimal(14, 2)
+  kvModifiedAt DateTime?
+  createdAt    DateTime  @default(now())
+
+  lines KvReturnLine[]
+
+  @@index([kvInvoiceId])
+  @@map("kv_returns")
+}
+
+model KvReturnLine {
+  id             String   @id @default(cuid())
+  kvReturnLineId String   @unique
+  kvReturnId     String
+  kvProductId    String
+  quantity       Decimal  @db.Decimal(10, 2)
+  price          Decimal  @db.Decimal(14, 2)
+  createdAt      DateTime @default(now())
+
+  kvReturn KvReturn @relation(fields: [kvReturnId], references: [kvReturnId])
+
+  @@index([kvReturnId])
+  @@map("kv_return_lines")
+}
+
+model KvOrder {
+  id           String   @id @default(cuid())
+  kvOrderId    String   @unique
+  code         String?
+  kvCustomerId String?
+  orderDate    DateTime
+  total        Decimal  @db.Decimal(14, 2)
+  status       String?
+  createdAt    DateTime @default(now())
+
+  @@map("kv_orders")
+}
+
+model KvStockSnapshot {
+  id          String   @id @default(cuid())
+  kvProductId String
+  snapshotAt  DateTime
+  onHand      Decimal  @db.Decimal(12, 2)
+  createdAt   DateTime @default(now())
+
+  @@index([kvProductId])
+  @@map("kv_stock_snapshots")
+}
+
+// 🔴 CWE-307: bộ đếm chống brute-force ĐĂNG NHẬP + REAUTH — persist ở DB (chia sẻ đa-instance,
+// không mất khi restart). `key` = "<scope>:<username|userId>::<ip>". scope: 'login' | 'reauth'.
+model ThrottleEntry {
+  key         String    @id
+  scope       String
+  fails       Int       @default(0)
+  firstFailAt DateTime  @default(now())
+  lockedUntil DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  @@index([lockedUntil])
+  @@map("throttle_entries")
+}
+
+// 🔴 A04/TOCTOU: khóa CHO thuê (lease) chống chạy CHỒNG lượt "sinh việc" (cron worker holdout + POST /run).
+// Một hàng cho mỗi tác vụ nền (name=PK). `lockedUntil` = hạn giữ (TTL) — chia sẻ đa-instance, không mất khi
+// restart. Acquire NGUYÊN TỬ (Serializable + retry): chỉ giữ được khi lockedUntil đã qua. Luôn release ở
+// finally; TTL chỉ phòng tiến trình crash giữa chừng.
+model SchedulerLease {
+  name        String   @id
+  lockedUntil DateTime
+  holder      String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("scheduler_leases")
+}
