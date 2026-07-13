@@ -194,6 +194,19 @@ function ExperimentCard({
           <span className="label">Tỉ lệ holdout</span>
           <span className="value num">{(exp.holdoutRatio * 100).toFixed(1)}%</span>
         </div>
+        <div className="info-item">
+          <span className="label">Đơn vị phân nhóm</span>
+          <span className="value">khách + thí nghiệm</span>
+        </div>
+      </div>
+
+      {/* 🔴 EXP-03: 6 luật loại trừ KHÓA CỨNG — luôn ép, không bỏ tick được. */}
+      <div className="notice notice-danger">
+        <ShieldAlert size={16} aria-hidden />
+        <span className="small">
+          Luôn loại trừ khỏi đối chứng: VIP · khiếu nại · vấn đề đơn/công nợ · đại lý at_risk · chăm
+          sóc bắt buộc — <b>khóa cứng, không bỏ tick được</b> (EXP-03).
+        </span>
       </div>
 
       {/* Số mẫu + trạng thái đủ mẫu (EXP-06). */}

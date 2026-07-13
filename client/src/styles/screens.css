@@ -537,6 +537,10 @@
 .needs-approval-row td {
   background: var(--c-warning-weak);
 }
+/* Dòng tham số khóa cứng (SCR-14) — nhấn để thấy rõ luật bảo vệ */
+.locked-cfg-row td {
+  background: var(--c-danger-weak);
+}
 
 /* Data-quality strip */
 .dq-strip {
@@ -609,6 +613,26 @@
   background: var(--c-success-weak);
   border-color: #c4e1bf;
   color: #2e7233;
+}
+.notice-danger {
+  background: var(--c-danger-weak);
+  border-color: #f3c9c2;
+  color: #b02b1e;
+}
+
+/* Avatar nhỏ trong bảng (SCR-13) */
+.avatar-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-pill);
+  background: var(--grad-brand);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  flex: 0 0 auto;
 }
 
 /* Chip (điền nhanh / mẫu / SP đã chọn) */
