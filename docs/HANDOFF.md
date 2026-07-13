@@ -1,6 +1,6 @@
 # HANDOFF — CRM Chicbaby (bàn giao giữa các phiên)
 
-> Đọc file này ĐẦU TIÊN khi mở lại dự án ở phiên sau. Cập nhật lần cuối: **2026-07-13** (16/16 màn MVP + hardening + worker holdout; **+ GĐ5 backlog** (cron holdout tự động, Export có duyệt, KiotViet status cấu hình được, Gộp hồ sơ bé, **2FA/thiết bị tin cậy**) **+ GĐ6 khung webhook KiotViet** (nhận sync thật, chờ API Spike). Tất cả qua Codex impl+security review APPROVE. PR #1 mở, 2 commit mới `d8d5342`/`1c08ada`).
+> Đọc file này ĐẦU TIÊN khi mở lại dự án ở phiên sau. Cập nhật lần cuối: **2026-07-13** (16/16 màn MVP + hardening + worker holdout; **+ GĐ5 backlog** (cron holdout tự động, Export có duyệt, KiotViet status cấu hình được, Gộp hồ sơ bé, **2FA/thiết bị tin cậy**) **+ GĐ6 khung webhook KiotViet** (nhận sync thật, chờ API Spike). Tất cả qua Codex impl+security review APPROVE. **✅ PR #1 ĐÃ MERGE vào `main`** (merge commit `f6624ba`) — nhánh `feature/mvp-phase3` đã xóa; `main` giờ chứa toàn bộ MVP+GĐ4/5/6).
 > Nguồn sự thật chi tiết: [`CLAUDE.md`](../CLAUDE.md) (kiến trúc/cách chạy/nguyên tắc) + [`docs/SPEC-DIGEST.md`](SPEC-DIGEST.md) (luật nghiệp vụ + màn hình + §11 Giai đoạn 2).
 
 ## 1. Sản phẩm là gì
@@ -21,14 +21,12 @@ npm run dev                                # server 4000 + client 5173
 Tài khoản seed (pass `chicbaby@123`): `chushop · crm · cskh · marketing · trolydulieu`.
 
 ## 3. Trạng thái Git (QUAN TRỌNG)
-- Nhánh làm việc HIỆN TẠI: **`feature/mvp-phase3`** — cộng dồn TẤT CẢ, sạch (`git status` trống).
-- 🔴 **2 commit MỚI (GĐ5+GĐ6) CHƯA PUSH** — `git push` để cập nhật PR #1:
-  - `1c08ada` feat(sync): khung webhook KiotViet (GĐ6, chờ API Spike)
-  - `d8d5342` feat: hoàn thiện backlog — cron holdout, export có duyệt, KiotViet status, gộp bé, 2FA (GĐ5)
-- 🔴 **PR #1 ĐANG MỞ** (`feature/mvp-phase3 → main`): https://github.com/ngotienthanh93-ctrl/CRM-Chicbaby/pull/1 — commit push lên nhánh này **tự cập nhật PR**. (Bản remote hiện DỪNG ở `e382af4`; push 2 commit trên để đồng bộ.)
-- Commit cũ (mới→cũ): `e382af4` handoff · `f48d21d/05e0bcf/5503dc4` worker holdout · `d071a52` throttle→DB · GĐ3.5/GĐ3/GĐ2/GĐ1.
+- Nhánh làm việc HIỆN TẠI: **`main`** — chứa TẤT CẢ (MVP + GĐ4/5/6), sạch, đồng bộ `origin/main` ở `f6624ba`.
+- ✅ **PR #1 ĐÃ MERGE** (`feature/mvp-phase3 → main`, merge-commit `f6624ba`, 2026-07-13): https://github.com/ngotienthanh93-ctrl/CRM-Chicbaby/pull/1 — trạng thái **MERGED**. Nhánh `feature/mvp-phase3` đã xóa (local + remote).
+- Trên `main` (mới→cũ): `f6624ba` merge PR#1 · `ac6ad51` fix comment lỗi thời holdout · `fe986b1` handoff GĐ5+GĐ6 · `1c08ada` GĐ6 khung webhook · `d8d5342` GĐ5 backlog · `e382af4` handoff · worker holdout · throttle→DB · GĐ3.5/GĐ3/GĐ2/GĐ1.
+- Nhánh cũ còn lại (đã merge từ trước, có thể xóa nếu muốn): `feature/mvp-core`, `feature/mvp-phase2`.
 - `.env`, `.codex-review/`, `node_modules/`, `*.tsbuildinfo` đã gitignore — không commit.
-- `gh` CLI **đã đăng nhập** (account `ngotienthanh93-ctrl`).
+- `gh` CLI **đã đăng nhập** (account `ngotienthanh93-ctrl`). Làm việc mới ⇒ tạo nhánh feature từ `main` (KHÔNG commit thẳng `main`).
 
 ## 4. Đã build (16/16 màn MVP, backend đầy đủ)
 **GĐ1 (MVP lõi)** — SCR-01 Đăng nhập · SCR-02 Việc hôm nay · SCR-03 Danh sách khách · SCR-04 Khách 360 · SCR-05 Hồ sơ bé · SCR-07 Phân bổ bé · SCR-08 Cấu hình chu kỳ · SCR-09 Đại lý. Backend: 51 model Prisma (CRM-owned + `kv_*` mirror + hạ tầng), 3 engine (nhắc tiêu dùng, phân bổ bé 3 cấp, nhắc nhập bù), RBAC + masking server-side, CHECK constraint + audit append-only.
@@ -76,16 +74,15 @@ Quy trình đã chứng minh hiệu quả cho dự án này:
 4. **Commit theo cụm** trên nhánh riêng (không commit thẳng `main`), trailer `Co-Authored-By`. Chỉ commit/push khi người dùng yêu cầu.
 
 ## 7. Việc nên làm tiếp (đề xuất thứ tự)
-0. **PUSH 2 commit mới** (`d8d5342`, `1c08ada`) lên `feature/mvp-phase3` → cập nhật PR #1 (remote đang dừng ở `e382af4`). `git push`.
-1. **Khi có API Spike KiotViet thật**: (a) viết mapping payload→mirror cho hóa đơn/dòng/trả trong `KV_MIRROR_HANDLERS` (`sync.processor.ts`) — hiện stub→dead-letter; (b) chỉnh `sync.webhook_signature_header` + logic verify khớp chữ ký thật KiotViet (`engines/syncEvent.ts:verifyWebhookSignature`); (c) đăng ký webhook + set secret thật.
+✅ **ĐÃ XONG**: push đồng bộ + **merge PR #1 vào `main`** (chốt MVP+GĐ5+GĐ6, merge-commit `f6624ba`). Backlog làm-được-trong-code đã CẠN. Việc còn lại đều vướng phụ thuộc NGOÀI code:
+1. **Khi có API Spike KiotViet thật** (last-mile GĐ6): (a) viết mapping payload→mirror cho hóa đơn/dòng/trả trong `KV_MIRROR_HANDLERS` (`sync.processor.ts`) — hiện stub→dead-letter; (b) chỉnh `sync.webhook_signature_header` + logic verify khớp chữ ký thật KiotViet (`engines/syncEvent.ts:verifyWebhookSignature`); (c) đăng ký webhook + set secret thật.
 2. **Rate-limit EDGE** (WAF/proxy) cho production; cân nhắc tách throttle-cleanup thành cron khi đa-instance.
-3. **Review & merge PR #1** vào `main` khi sẵn sàng (chốt MVP+GĐ5+GĐ6).
-4. (Tùy nhu cầu) gộp hồ sơ bé cross-customer, 2FA bắt buộc theo vai, UAT §10 chính thức.
+3. (Tùy nhu cầu) gộp hồ sơ bé cross-customer, 2FA bắt buộc theo vai, UAT §10 chính thức.
 
 ## 8. Cách RESUME ở phiên sau
 - Mở thư mục `~/Projects/CRM - Chicbaby/dự án CRM` trong Claude Code.
 - Bộ nhớ dự án tự nạp (Claude tự nhớ). Nếu cần, chỉ cần nói: **"đọc docs/HANDOFF.md rồi tiếp tục dự án CRM Chicbaby"**.
-- Kiểm nhanh: `git branch` (đang ở `feature/mvp-phase3`) · `git status` · `docker compose up -d` · `npm run dev` → http://localhost:5173, login `chushop / chicbaby@123`.
+- Kiểm nhanh: `git branch` (đang ở **`main`**, đã chứa tất cả) · `git status` · `docker compose up -d` · `npm run dev` → http://localhost:5173, login `chushop / chicbaby@123`.
 - Màn mới GĐ5: **`/bao-mat`** (2FA + thiết bị tin cậy, mọi vai) · **`/export-du-lieu`** (export có duyệt, vai viewSensitive) · gộp bé ở Khách 360 (chu_shop). Cũ: `/cau-hinh-he-thong`, `/thi-nghiem`.
-- 🔴 **2 commit GĐ5+GĐ6 CHƯA PUSH** (xem §3/§7.0) — `git push` để đồng bộ PR #1.
-- Việc tiếp: push · (khi có Spike) mapping webhook KiotViet thật · rate-limit EDGE · merge PR #1. Xem §7. (16/16 màn MVP + GĐ5 backlog + GĐ6 khung webhook đã xong, Codex APPROVE; 261 test.)
+- ✅ **PR #1 ĐÃ MERGE vào `main`** (`f6624ba`) — không còn commit chờ push. Làm việc mới ⇒ tạo nhánh feature từ `main`.
+- Việc tiếp CHỈ còn phần vướng phụ thuộc NGOÀI code: (khi có API Spike KiotViet) mapping webhook thật · rate-limit EDGE. Xem §7. (16/16 màn MVP + GĐ4/5/6 đã xong & MERGE, Codex APPROVE; 261 test pass.)
