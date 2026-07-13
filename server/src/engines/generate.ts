@@ -231,7 +231,9 @@ export async function generateConsumptionFollowUps(opts: GenerateOptions): Promi
     );
 
     await prisma.$transaction(async (tx) => {
-      // Tái dùng: cập nhật follow-up + upsert nguồn (không nhân đôi).
+      // Tái dùng: cập nhật follow-up + upsert nguồn (không nhân đôi). 🔴 EXP-04: đồng bộ isHoldout theo
+      // nhóm HIỆN TẠI của khách — nếu không, việc cũ (seed/lần trước) của khách holdout vẫn isHoldout=false
+      // và LỌT vào SCR-02.
       for (const { call, followUpId } of reuseCalls) {
         await persistReminderCall(tx, {
           mode: 'reuse',
@@ -239,6 +241,7 @@ export async function generateConsumptionFollowUps(opts: GenerateOptions): Promi
           call,
           today,
           lineMeta,
+          isHoldout,
         });
       }
       // Tạo mới trong trần.
@@ -288,11 +291,11 @@ export async function generateConsumptionFollowUps(opts: GenerateOptions): Promi
           });
           created++;
           for (const call of plan.toMerge.slice(1)) {
-            await persistReminderCall(tx, { mode: 'reuse', followUpId: mergeTarget, call, today, lineMeta });
+            await persistReminderCall(tx, { mode: 'reuse', followUpId: mergeTarget, call, today, lineMeta, isHoldout });
           }
         } else {
           for (const call of plan.toMerge) {
-            await persistReminderCall(tx, { mode: 'reuse', followUpId: mergeTarget, call, today, lineMeta });
+            await persistReminderCall(tx, { mode: 'reuse', followUpId: mergeTarget, call, today, lineMeta, isHoldout });
           }
         }
       }
@@ -358,7 +361,13 @@ async function persistReminderCall(
       existing && existing.dueDate < call.remindDate ? existing.dueDate : call.remindDate;
     await tx.followUp.update({
       where: { id: followUpId },
-      data: { content: merged, dueDate },
+      // 🔴 EXP-04: cập nhật isHoldout theo nhóm hiện tại (khi caller cung cấp) — việc tái dùng của khách
+      // holdout phải KHÔNG hiện SCR-02; khách rời holdout thì việc hiện lại.
+      data: {
+        content: merged,
+        dueDate,
+        ...(args.isHoldout !== undefined ? { isHoldout: args.isHoldout } : {}),
+      },
     });
   }
 

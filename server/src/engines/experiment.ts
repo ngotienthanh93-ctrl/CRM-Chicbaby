@@ -89,6 +89,93 @@ export function isExcludedFromExperiment(signals: ExperimentExclusionSignals): {
   return { excluded: reasons.length > 0, reasons };
 }
 
+// ---------- Phân bổ holdout PRODUCTION (SCR-15) — phần THUẦN (test được không cần DB) ----------
+
+/**
+ * Ngữ cảnh phân bổ: các tập customerId đã nạp SẴN 1 lần từ DB (tránh N+1 trong vòng lặp khách).
+ * Mỗi tập tương ứng một luật loại trừ khóa cứng; service (assignment.service.ts) nạp từ DB rồi
+ * truyền vào đây để derive tín hiệu THUẦN.
+ */
+export interface ExperimentAssignmentContext {
+  /** Khách có vai `wholesale_contact` ⇒ VIP. */
+  vipCustomerIds: Set<string>;
+  /** Khách là liên hệ của Organization đang `at_risk`. */
+  atRiskCustomerIds: Set<string>;
+  /** Khách có follow-up ĐANG MỞ status `hen_lai` (đã hẹn gọi lại). */
+  callbackCustomerIds: Set<string>;
+  /** Khách có follow-up ĐANG MỞ `frequencyCapScope='service_contact'` (chăm sóc bắt buộc/khiếu nại). */
+  serviceContactCustomerIds: Set<string>;
+  /** Khách có `KvOrder` trạng thái đang mở (đơn/giao/công nợ chưa hoàn tất). */
+  openOrderDebtCustomerIds: Set<string>;
+}
+
+/**
+ * Derive 6 tín hiệu loại trừ cho MỘT khách từ ngữ cảnh đã nạp (THUẦN — không chạm DB).
+ * 🔴 `hasComplaint` và `isServiceContact` cùng suy ra từ follow-up `service_contact` đang mở
+ * (một việc chăm sóc bắt buộc vừa là khiếu nại/hẹn vừa thuộc loại trần ∞ — §12.3, nguyên tắc #5).
+ */
+export function deriveExclusionSignals(
+  customerId: string,
+  ctx: ExperimentAssignmentContext,
+): ExperimentExclusionSignals {
+  const isServiceContact = ctx.serviceContactCustomerIds.has(customerId);
+  return {
+    isVip: ctx.vipCustomerIds.has(customerId),
+    agencyAtRisk: ctx.atRiskCustomerIds.has(customerId),
+    callbackRequested: ctx.callbackCustomerIds.has(customerId),
+    hasComplaint: isServiceContact,
+    hasOpenOrderDeliveryDebt: ctx.openOrderDebtCustomerIds.has(customerId),
+    isServiceContact,
+  };
+}
+
+/**
+ * 🔴 Best-effort: KiotViet không chuẩn hóa status đơn trong repo (kv_orders là mirror tham chiếu).
+ * Coi là "đang mở" (đơn/giao/công nợ chưa xong) các trạng thái phiếu tạm / đang giao; trạng thái
+ * hoàn tất/đã hủy là terminal ⇒ KHÔNG mở. status null/không rõ ⇒ KHÔNG mở (tránh loại nhầm quá tay).
+ * GIẢ ĐỊNH: khi xác nhận được semantics status thật của shop, nên chuyển danh sách này sang cấu hình.
+ */
+const OPEN_ORDER_STATUS_SET = new Set<string>([
+  // mã số KiotViet phổ biến: 1 = phiếu tạm, 2 = đang giao hàng
+  '1',
+  '2',
+  // biến thể chữ (không phân biệt hoa/thường)
+  'draft',
+  'processing',
+  'pending',
+  'delivering',
+  'phieu_tam',
+  'dang_giao',
+  'dang_giao_hang',
+]);
+
+/** Trạng thái đơn KiotViet có đang mở không (best-effort — xem OPEN_ORDER_STATUS_SET). */
+export function isOpenOrderStatus(status: string | null | undefined): boolean {
+  if (status == null) return false;
+  return OPEN_ORDER_STATUS_SET.has(status.trim().toLowerCase());
+}
+
+/** Kết quả phân loại 1 khách cho thí nghiệm: loại trừ (kèm lý do) hoặc nhóm ổn định. */
+export type ExperimentClassification =
+  | { excluded: true; reasons: string[] }
+  | { excluded: false; group: ExperimentGroupStr };
+
+/**
+ * 🔴 Phân loại MỘT khách cho thí nghiệm (THUẦN — test được):
+ * - Dính bất kỳ 1 trong 6 luật khóa cứng ⇒ loại trừ (KHÔNG treatment, KHÔNG holdout).
+ * - Ngược lại ⇒ gán nhóm ổn định theo hash(customerId+experimentId) (EXP-01, chạy lại KHÔNG đổi nhóm).
+ */
+export function classifyForExperiment(
+  customerId: string,
+  experimentId: string,
+  holdoutRatio: number,
+  ctx: ExperimentAssignmentContext,
+): ExperimentClassification {
+  const { excluded, reasons } = isExcludedFromExperiment(deriveExclusionSignals(customerId, ctx));
+  if (excluded) return { excluded: true, reasons };
+  return { excluded: false, group: assignExperimentGroup(customerId, experimentId, holdoutRatio) };
+}
+
 // ---------- RPT-04: đếm DISTINCT khách mua lại trong cửa sổ thí nghiệm ----------
 export interface ConversionRow {
   /** khách gắn với follow-up của conversion (null ⇒ bỏ qua). */
