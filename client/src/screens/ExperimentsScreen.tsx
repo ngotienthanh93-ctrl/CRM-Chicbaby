@@ -1,7 +1,13 @@
-import { useState } from 'react';
-import { FlaskConical, Pencil, Plus, ShieldAlert } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { FlaskConical, Pencil, Play, Plus, ShieldAlert, Users } from 'lucide-react';
 import { api } from '../api/client';
-import type { ExperimentDTO, ExperimentsResponse, ExperimentStatus } from '../api/types';
+import type {
+  ExperimentAssignResult,
+  ExperimentDTO,
+  ExperimentRunResult,
+  ExperimentsResponse,
+  ExperimentStatus,
+} from '../api/types';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../components/Toast';
 import { Badge, EmptyState, ErrorState, SkeletonCards } from '../components/ui';
@@ -14,6 +20,8 @@ type ModalState =
   | { kind: 'create' }
   | { kind: 'edit'; exp: ExperimentDTO }
   | { kind: 'status'; exp: ExperimentDTO; next: ExperimentStatus }
+  | { kind: 'assign'; exp: ExperimentDTO }
+  | { kind: 'run' }
   | null;
 
 export function ExperimentsScreen() {
@@ -37,10 +45,17 @@ export function ExperimentsScreen() {
             luận. Mọi thao tác yêu cầu nhập lại mật khẩu và được ghi nhật ký.
           </p>
         </div>
-        <button className="btn btn-primary" onClick={() => setModal({ kind: 'create' })}>
-          <Plus size={16} aria-hidden />
-          Tạo thí nghiệm
-        </button>
+        <div className="row-wrap" style={{ gap: 8 }}>
+          {/* Chạy worker: phân nhóm mọi thí nghiệm running + sinh việc (áp holdout). */}
+          <button className="btn btn-outline" onClick={() => setModal({ kind: 'run' })}>
+            <Play size={16} aria-hidden />
+            Chạy sinh việc (áp holdout)
+          </button>
+          <button className="btn btn-primary" onClick={() => setModal({ kind: 'create' })}>
+            <Plus size={16} aria-hidden />
+            Tạo thí nghiệm
+          </button>
+        </div>
       </div>
 
       <div className="notice notice-neutral" style={{ marginBottom: 16 }}>
@@ -68,6 +83,7 @@ export function ExperimentsScreen() {
                 exp={exp}
                 onEdit={() => setModal({ kind: 'edit', exp })}
                 onStatus={(next) => setModal({ kind: 'status', exp, next })}
+                onAssign={() => setModal({ kind: 'assign', exp })}
               />
             ))}
           </div>
@@ -96,6 +112,27 @@ export function ExperimentsScreen() {
           onDone={() => closeAndReload(`Đã chuyển sang "${expStatusVi[modal.next]}".`)}
         />
       )}
+      {modal?.kind === 'assign' && (
+        <AssignModal
+          exp={modal.exp}
+          onClose={() => setModal(null)}
+          onDone={(r) =>
+            closeAndReload(
+              `Đã phân nhóm: ${r.treatment} treatment · ${r.holdout} holdout · ${r.excluded} loại trừ.`,
+            )
+          }
+        />
+      )}
+      {modal?.kind === 'run' && (
+        <RunModal
+          onClose={() => setModal(null)}
+          onDone={(r) =>
+            closeAndReload(
+              `Đã chạy: ${r.experiments.length} thí nghiệm · ${r.holdoutCount} khách holdout · ${r.consumptionCreated + r.replenishmentCreated} việc mới.`,
+            )
+          }
+        />
+      )}
     </div>
   );
 }
@@ -104,10 +141,12 @@ function ExperimentCard({
   exp,
   onEdit,
   onStatus,
+  onAssign,
 }: {
   exp: ExperimentDTO;
   onEdit: () => void;
   onStatus: (next: ExperimentStatus) => void;
+  onAssign: () => void;
 }) {
   const nextStatuses = STATUS_TRANSITIONS[exp.status];
   return (
@@ -123,6 +162,13 @@ function ExperimentCard({
             <Pencil size={14} aria-hidden />
             Sửa
           </button>
+          {/* Phân nhóm ngay: chỉ khi đang chạy (áp 6 luật loại trừ, upsert ổn định EXP-01). */}
+          {exp.status === 'running' && (
+            <button className="btn btn-ghost btn-sm" onClick={onAssign}>
+              <Users size={14} aria-hidden />
+              Phân nhóm ngay
+            </button>
+          )}
           {nextStatuses.map((next) => (
             <button
               key={next}
@@ -260,6 +306,73 @@ function StatusModal({
       onClose={onClose}
       onSubmit={(password) => api.post(`/api/experiments/${exp.id}/status`, { status: next, password })}
       onDone={onDone}
+    />
+  );
+}
+
+/** 🔴 Phân nhóm 1 thí nghiệm running (reauth). Kết quả (số nhóm/loại trừ) đưa vào toast qua ref. */
+function AssignModal({
+  exp,
+  onClose,
+  onDone,
+}: {
+  exp: ExperimentDTO;
+  onClose: () => void;
+  onDone: (result: ExperimentAssignResult) => void;
+}) {
+  const resultRef = useRef<ExperimentAssignResult | null>(null);
+  return (
+    <ReauthModal
+      title={`Phân nhóm ngay: ${exp.name}`}
+      submitLabel="Phân nhóm"
+      warning={
+        <div className="notice notice-neutral">
+          <ShieldAlert size={16} aria-hidden />
+          <span className="small">
+            Gán khách bán lẻ vào treatment/holdout theo hash ổn định; khách dính 1 trong 6 luật loại
+            trừ khóa cứng sẽ được bỏ qua. Chạy lại không đổi nhóm của khách đã gán (EXP-01).
+          </span>
+        </div>
+      }
+      onClose={onClose}
+      onSubmit={async (password) => {
+        resultRef.current = await api.post<ExperimentAssignResult>(
+          `/api/experiments/${exp.id}/assign`,
+          { password },
+        );
+      }}
+      onDone={() => resultRef.current && onDone(resultRef.current)}
+    />
+  );
+}
+
+/** 🔴 Chạy worker: phân nhóm mọi thí nghiệm running + sinh việc idempotent (áp holdout, EXP-04). */
+function RunModal({
+  onClose,
+  onDone,
+}: {
+  onClose: () => void;
+  onDone: (result: ExperimentRunResult) => void;
+}) {
+  const resultRef = useRef<ExperimentRunResult | null>(null);
+  return (
+    <ReauthModal
+      title="Chạy sinh việc (áp holdout)"
+      submitLabel="Chạy ngay"
+      warning={
+        <div className="notice notice-warning">
+          <ShieldAlert size={16} aria-hidden />
+          <span className="small">
+            Phân nhóm cho MỌI thí nghiệm đang chạy rồi sinh lại việc nhắc — việc của nhóm holdout sẽ
+            KHÔNG hiện ở Việc hôm nay (EXP-04). Thao tác an toàn chạy lại (không tạo việc trùng).
+          </span>
+        </div>
+      }
+      onClose={onClose}
+      onSubmit={async (password) => {
+        resultRef.current = await api.post<ExperimentRunResult>('/api/experiments/run', { password });
+      }}
+      onDone={() => resultRef.current && onDone(resultRef.current)}
     />
   );
 }

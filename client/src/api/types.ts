@@ -710,3 +710,19 @@ export interface ExperimentDTO {
 export interface ExperimentsResponse {
   items: ExperimentDTO[];
 }
+
+/** Kết quả POST /api/experiments/:id/assign — phân nhóm 1 thí nghiệm. */
+export interface ExperimentAssignResult {
+  assigned: number;
+  treatment: number;
+  holdout: number;
+  excluded: number;
+}
+
+/** Kết quả POST /api/experiments/run — phân nhóm mọi thí nghiệm running + sinh việc. */
+export interface ExperimentRunResult {
+  experiments: Array<{ id: string; name: string } & ExperimentAssignResult>;
+  holdoutCount: number;
+  consumptionCreated: number;
+  replenishmentCreated: number;
+}
