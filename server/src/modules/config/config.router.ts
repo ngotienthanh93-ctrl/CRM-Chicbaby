@@ -9,6 +9,7 @@ import { requireAuth, requireRole } from '../../middleware/auth';
 import { writeAudit } from '../../security/audit';
 import { verifyReauth } from '../../security/reauth';
 import { addDays } from '../../lib/datetime';
+import { runSerializable } from '../../lib/serializable';
 import {
   CONFIG_GROUP_LABELS,
   getConfigItem,
@@ -150,8 +151,7 @@ configRouter.put(
     // 🔴 CONC-02/03: đọc bản active + version bump + change-log + audit NGUYÊN TỬ trong 1 transaction
     // Serializable. Đọc `current` NGOÀI transaction từng gây race: 2 request đồng thời cùng tính
     // version N+1 và cùng đặt isActive=true. Serializable ⇒ một trong hai sẽ abort (không có 2 bản active).
-    const newVersion = await prisma.$transaction(
-      async (tx) => {
+    const newVersion = await runSerializable(async (tx) => {
         const current = await tx.configurationVersion.findFirst({
           where: { key, isActive: true },
         });
@@ -195,9 +195,7 @@ configRouter.put(
           tx,
         );
         return nextVersion;
-      },
-      { isolationLevel: 'Serializable' },
-    );
+    });
     res.json({ ok: true, version: newVersion });
   }),
 );
@@ -294,8 +292,7 @@ configRouter.post(
 
     // 🔴 CONC-02/03: đọc bản active + version đích + tạo version mới NGUYÊN TỬ (Serializable) —
     // chống race 2 bản active/trùng version như PUT.
-    const result = await prisma.$transaction(
-      async (tx) => {
+    const result = await runSerializable(async (tx) => {
         const [current, target] = await Promise.all([
           tx.configurationVersion.findFirst({ where: { key, isActive: true } }),
           tx.configurationVersion.findFirst({ where: { key, version: parsed.data.toVersion } }),
@@ -348,9 +345,7 @@ configRouter.post(
           tx,
         );
         return { newVersion: nextVersion, rolledBackTo: target.version };
-      },
-      { isolationLevel: 'Serializable' },
-    );
+    });
     res.json({ ok: true, ...result });
   }),
 );

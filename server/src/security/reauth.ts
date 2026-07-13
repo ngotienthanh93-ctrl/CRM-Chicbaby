@@ -3,7 +3,8 @@
 import { prisma } from '../lib/prisma';
 import { verifyPassword } from '../lib/crypto';
 import { forbidden, tooManyRequests } from '../lib/http';
-import { LoginThrottle, throttleKey } from '../modules/auth/login-throttle';
+import { throttleKey } from '../modules/auth/login-throttle';
+import { reserveAttemptDb, recordSuccessDb } from '../modules/auth/throttle-store';
 import { writeAudit } from './audit';
 
 /** Trả true nếu `password` khớp mật khẩu hiện tại của user. User không tồn tại/disabled => false. */
@@ -15,14 +16,8 @@ export async function verifyCurrentPassword(userId: string, password: string): P
 }
 
 // 🔴 SEC (CWE-307): reauth cũng bị brute-force nếu phiên admin bị đánh cắp — khóa theo (userId+IP),
-//    ghi audit mỗi lần sai/khóa. Bộ đếm RIÊNG với login (không lây khóa qua lại). HẠN CHẾ MVP: in-memory
-//    (giống loginThrottle) — production đa-instance cần chuyển DB/Redis.
-const reauthThrottle = new LoginThrottle();
-
-/** Dọn bộ đếm reauth (chỉ dùng cho test). */
-export function resetReauthThrottle(): void {
-  reauthThrottle.reset();
-}
+//    ghi audit mỗi lần sai/khóa. Bộ đếm scope RIÊNG 'reauth' (không lây khóa qua lại với login),
+//    PERSIST ở DB (throttle_entries) — chia sẻ đa-instance, không mất khi restart.
 
 /**
  * 🔴 Xác minh lại mật khẩu CÓ chống brute-force cho thao tác nhạy cảm (SCR-13 AUTH-12).
@@ -36,33 +31,34 @@ export async function verifyReauth(
   ip: string | undefined,
 ): Promise<void> {
   const key = throttleKey(userId, ip);
-  const lock = reauthThrottle.isLocked(key);
-  if (lock.locked) {
+  // 🔴 ĐẶT CHỖ (đếm) NGUYÊN TỬ trước khi verify ⇒ đóng cửa sổ burst song song (như login).
+  const reservation = await reserveAttemptDb('reauth', key);
+  if (!reservation.allowed) {
     await writeAudit({
       userId,
       action: 'auth.reauth_locked',
       objectType: 'user',
       objectId: userId,
       ip: ip ?? null,
-      newValue: { retryAfterMs: lock.retryAfterMs },
+      newValue: { retryAfterMs: reservation.retryAfterMs },
     });
     throw tooManyRequests('Bạn đã xác minh sai quá nhiều lần. Vui lòng thử lại sau ít phút.');
   }
   const ok = await verifyCurrentPassword(userId, password);
   if (!ok) {
-    const st = reauthThrottle.recordFailure(key);
+    // Lần thử đã được đếm khi đặt chỗ.
     await writeAudit({
       userId,
       action: 'auth.reauth_failed',
       objectType: 'user',
       objectId: userId,
       ip: ip ?? null,
-      newValue: { fails: st.fails, locked: st.locked },
+      newValue: { fails: reservation.fails, locked: reservation.locked },
     });
-    if (st.locked) {
+    if (reservation.locked) {
       throw tooManyRequests('Bạn đã xác minh sai quá nhiều lần. Vui lòng thử lại sau ít phút.');
     }
     throw forbidden('Mật khẩu xác minh không đúng.');
   }
-  reauthThrottle.recordSuccess(key);
+  await recordSuccessDb('reauth', key);
 }

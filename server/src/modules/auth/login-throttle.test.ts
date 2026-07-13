@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { LoginThrottle, DEFAULT_THROTTLE, throttleKey } from './login-throttle';
+import {
+  LoginThrottle,
+  DEFAULT_THROTTLE,
+  throttleKey,
+  computeFailure,
+  computeLock,
+  type Entry,
+} from './login-throttle';
 
 const T0 = 1_000_000; // mốc thời gian giả (ms)
 const MIN = 60 * 1000;
@@ -81,5 +88,32 @@ describe('SEC-FIX-4 — recordSuccess reset bộ đếm', () => {
       const s = t.recordFailure(KEY, T0);
       expect(s.locked).toBe(false);
     }
+  });
+});
+
+// 🔴 Logic THUẦN dùng chung với store DB (throttle-store.ts) — hợp đồng phải ổn định.
+describe('SEC — computeFailure/computeLock (thuần, dùng chung DB)', () => {
+  it('computeFailure KHÔNG mutate input, trả entry MỚI (store DB dựa vào tính chất này)', () => {
+    const before: Entry = { fails: 4, firstFailAt: T0, lockedUntil: 0 };
+    const snapshot = { ...before };
+    const { entry, status } = computeFailure(before, T0, DEFAULT_THROTTLE);
+    expect(before).toEqual(snapshot); // input nguyên vẹn
+    expect(entry).not.toBe(before);
+    expect(entry.fails).toBe(5);
+    expect(status.locked).toBe(true); // lần thứ 5 => khóa mềm
+  });
+
+  it('entry null (chưa có bản ghi) => lần sai đầu tiên fails=1, chưa khóa', () => {
+    const { entry, status } = computeFailure(null, T0, DEFAULT_THROTTLE);
+    expect(entry.fails).toBe(1);
+    expect(status.locked).toBe(false);
+    expect(computeLock(null, T0).locked).toBe(false);
+  });
+
+  it('cửa sổ hết hạn + không còn khóa => reset bộ đếm về 1', () => {
+    const stale: Entry = { fails: 9, firstFailAt: T0, lockedUntil: 0 };
+    const later = T0 + DEFAULT_THROTTLE.windowMs + 1;
+    const { entry } = computeFailure(stale, later, DEFAULT_THROTTLE);
+    expect(entry.fails).toBe(1);
   });
 });

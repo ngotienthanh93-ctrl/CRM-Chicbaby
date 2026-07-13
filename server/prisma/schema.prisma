@@ -1257,3 +1257,17 @@ model KvStockSnapshot {
   @@index([kvProductId])
   @@map("kv_stock_snapshots")
 }
+
+// 🔴 CWE-307: bộ đếm chống brute-force ĐĂNG NHẬP + REAUTH — persist ở DB (chia sẻ đa-instance,
+// không mất khi restart). `key` = "<scope>:<username|userId>::<ip>". scope: 'login' | 'reauth'.
+model ThrottleEntry {
+  key         String    @id
+  scope       String
+  fails       Int       @default(0)
+  firstFailAt DateTime  @default(now())
+  lockedUntil DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  @@index([lockedUntil])
+  @@map("throttle_entries")
+}

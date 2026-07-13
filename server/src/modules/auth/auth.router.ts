@@ -7,13 +7,15 @@ import { getEffectivePermissions } from '../../security/rolePermissions';
 import { writeAudit } from '../../security/audit';
 import { verifyReauth } from '../../security/reauth';
 import { SESSION_COOKIE, login, revokeSession } from './session.service';
-import { loginThrottle, throttleKey } from './login-throttle';
+import { throttleKey } from './login-throttle';
+import { reserveAttemptDb, recordSuccessDb } from './throttle-store';
 
 export const authRouter = Router();
 
 const loginSchema = z.object({
-  username: z.string().min(1),
-  password: z.string().min(1),
+  // 🔴 max(100): chặn username khổng lồ (khóa throttle/DoS) — user thật ngắn hơn nhiều.
+  username: z.string().min(1).max(100),
+  password: z.string().min(1).max(200),
   remember: z.boolean().optional(),
 });
 
@@ -23,17 +25,18 @@ authRouter.post(
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) throw badRequest('Thiếu tên đăng nhập hoặc mật khẩu.');
 
-    // 🔴 SEC-FIX-4 (AUTH-03/04): khóa tạm theo (username+IP) sau nhiều lần sai. Kiểm TRƯỚC khi thử mật khẩu.
+    // 🔴 SEC-FIX-4 (AUTH-03/04): khóa tạm theo (username+IP). ĐẶT CHỖ (đếm) NGUYÊN TỬ TRƯỚC khi thử mật khẩu
+    // ⇒ đóng cửa sổ burst song song. Đang khóa => 429; mật khẩu ĐÚNG => xóa đếm ở dưới.
     const key = throttleKey(parsed.data.username, req.ip);
-    const lock = loginThrottle.isLocked(key);
-    if (lock.locked) {
+    const reservation = await reserveAttemptDb('login', key);
+    if (!reservation.allowed) {
       // Ghi audit lần bị khóa (KHÔNG log mật khẩu — chỉ username + IP).
       await writeAudit({
         userId: null,
         action: 'auth.login_locked',
         objectType: 'user',
         ip: req.ip,
-        newValue: { username: parsed.data.username, retryAfterMs: lock.retryAfterMs },
+        newValue: { username: parsed.data.username, retryAfterMs: reservation.retryAfterMs },
       });
       throw tooManyRequests('Bạn đã đăng nhập sai quá nhiều lần. Vui lòng thử lại sau ít phút.');
     }
@@ -42,21 +45,19 @@ authRouter.post(
       device: req.get('user-agent') ?? undefined,
       ip: req.ip,
     });
-    // AUTH-10: KHÔNG tiết lộ tài khoản có tồn tại hay không.
+    // AUTH-10: KHÔNG tiết lộ tài khoản có tồn tại hay không. Lần thử đã được đếm khi đặt chỗ.
     if (!result) {
-      // Đếm 1 lần sai (áp cho mọi username kể cả không tồn tại => không lộ tồn tại qua hành vi khóa).
-      const st = loginThrottle.recordFailure(key);
       await writeAudit({
         userId: null,
         action: 'auth.login_failed',
         objectType: 'user',
         ip: req.ip,
-        newValue: { username: parsed.data.username, fails: st.fails, locked: st.locked },
+        newValue: { username: parsed.data.username, fails: reservation.fails, locked: reservation.locked },
       });
       throw unauthorized('Tên đăng nhập hoặc mật khẩu không đúng.');
     }
-    // Thành công => xóa bộ đếm sai của (username+IP).
-    loginThrottle.recordSuccess(key);
+    // Thành công => xóa bộ đếm sai của (username+IP) (hủy lần đặt chỗ vừa cộng).
+    await recordSuccessDb('login', key);
 
     res.cookie(SESSION_COOKIE, result.token, {
       httpOnly: true,

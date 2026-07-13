@@ -2,10 +2,9 @@
 // AUTH-03: khóa 15 phút sau 5 lần sai, 24h sau 10 lần sai.
 // AUTH-04: khóa theo (username + IP), KHÔNG khóa toàn cục (tránh DoS 1 tài khoản/ khóa nhầm cả hệ thống).
 //
-// ⚠️ HẠN CHẾ MVP (cố ý, ghi rõ): bộ đếm nằm TRONG BỘ NHỚ (Map có TTL).
-//   - Reset khi restart tiến trình.
-//   - KHÔNG chia sẻ giữa nhiều instance (chạy đa-instance sẽ đếm rời rạc).
-//   Khi lên production đa-instance: thay bằng bảng DB (login_attempts) hoặc Redis. Schema để hook sau.
+// LOGIC THUẦN (computeLock/computeFailure) tách riêng để test được và DÙNG CHUNG cho:
+//   - `LoginThrottle` (Map trong bộ nhớ) — dùng cho unit test/ fallback.
+//   - store DB (`throttle-store.ts`) — PERSIST bộ đếm, chia sẻ đa-instance, không mất khi restart (production).
 
 export interface ThrottleConfig {
   /** Số lần sai để khóa mềm. */
@@ -28,7 +27,7 @@ export const DEFAULT_THROTTLE: ThrottleConfig = {
   windowMs: 24 * 60 * 60 * 1000,
 };
 
-interface Entry {
+export interface Entry {
   fails: number;
   firstFailAt: number;
   lockedUntil: number; // 0 = không khóa
@@ -50,6 +49,49 @@ export function throttleKey(username: string, ip: string | undefined): string {
   return `${username.trim().toLowerCase()}::${ip ?? 'unknown'}`;
 }
 
+// ---------- LOGIC THUẦN (không I/O) — nguồn sự thật cho cả in-memory lẫn store DB ----------
+
+/** Trạng thái khóa theo entry hiện tại (null/undefined = chưa có bản ghi). */
+export function computeLock(entry: Entry | null | undefined, now: number = Date.now()): LockStatus {
+  if (entry && entry.lockedUntil > now) {
+    return { locked: true, retryAfterMs: entry.lockedUntil - now };
+  }
+  return { locked: false, retryAfterMs: 0 };
+}
+
+/**
+ * Cộng dồn 1 lần SAI (THUẦN — không mutate input). Trả entry MỚI + trạng thái.
+ * - Cửa sổ cũ hết hạn và KHÔNG còn khóa ⇒ reset bộ đếm.
+ * - Đạt ngưỡng cứng ⇒ khóa cứng; ngưỡng mềm ⇒ khóa mềm.
+ */
+export function computeFailure(
+  entry: Entry | null | undefined,
+  now: number = Date.now(),
+  cfg: ThrottleConfig = DEFAULT_THROTTLE,
+): { entry: Entry; status: FailureStatus } {
+  let e = entry ?? undefined;
+  if (e && e.lockedUntil <= now && now - e.firstFailAt > cfg.windowMs) {
+    e = undefined; // cửa sổ hết hạn ⇒ bắt đầu lại
+  }
+  const next: Entry = e
+    ? { ...e }
+    : { fails: 0, firstFailAt: now, lockedUntil: 0 };
+  next.fails += 1;
+  if (next.fails >= cfg.hardThreshold) {
+    next.lockedUntil = now + cfg.hardLockMs;
+  } else if (next.fails >= cfg.softThreshold) {
+    next.lockedUntil = now + cfg.softLockMs;
+  }
+  return {
+    entry: next,
+    status: {
+      fails: next.fails,
+      locked: next.lockedUntil > now,
+      retryAfterMs: next.lockedUntil > now ? next.lockedUntil - now : 0,
+    },
+  };
+}
+
 export class LoginThrottle {
   private readonly entries = new Map<string, Entry>();
 
@@ -57,35 +99,14 @@ export class LoginThrottle {
 
   /** Đang bị khóa không? (kiểm tra TRƯỚC khi thử mật khẩu). */
   isLocked(key: string, now: number = Date.now()): LockStatus {
-    const e = this.entries.get(key);
-    if (e && e.lockedUntil > now) {
-      return { locked: true, retryAfterMs: e.lockedUntil - now };
-    }
-    return { locked: false, retryAfterMs: 0 };
+    return computeLock(this.entries.get(key), now);
   }
 
   /** Ghi nhận 1 lần đăng nhập SAI. Trả trạng thái sau khi cộng dồn. */
   recordFailure(key: string, now: number = Date.now()): FailureStatus {
-    let e = this.entries.get(key);
-    // Reset bộ đếm nếu cửa sổ cũ đã hết hạn và hiện KHÔNG còn bị khóa.
-    if (e && e.lockedUntil <= now && now - e.firstFailAt > this.cfg.windowMs) {
-      e = undefined;
-    }
-    if (!e) {
-      e = { fails: 0, firstFailAt: now, lockedUntil: 0 };
-      this.entries.set(key, e);
-    }
-    e.fails += 1;
-    if (e.fails >= this.cfg.hardThreshold) {
-      e.lockedUntil = now + this.cfg.hardLockMs;
-    } else if (e.fails >= this.cfg.softThreshold) {
-      e.lockedUntil = now + this.cfg.softLockMs;
-    }
-    return {
-      fails: e.fails,
-      locked: e.lockedUntil > now,
-      retryAfterMs: e.lockedUntil > now ? e.lockedUntil - now : 0,
-    };
+    const { entry, status } = computeFailure(this.entries.get(key), now, this.cfg);
+    this.entries.set(key, entry);
+    return status;
   }
 
   /** Đăng nhập THÀNH CÔNG => xóa bộ đếm cho khóa này. */
@@ -98,6 +119,3 @@ export class LoginThrottle {
     this.entries.clear();
   }
 }
-
-/** Singleton dùng ở router (bộ đếm sống theo tiến trình). */
-export const loginThrottle = new LoginThrottle();
