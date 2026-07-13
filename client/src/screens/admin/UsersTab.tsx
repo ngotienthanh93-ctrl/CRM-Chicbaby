@@ -7,6 +7,7 @@ import {
   KeyRound,
   ArrowRightLeft,
   MonitorSmartphone,
+  ShieldAlert,
 } from 'lucide-react';
 import { api } from '../../api/client';
 import type { AdminUser, AdminUsersResponse, RoleKey } from '../../api/types';
@@ -49,11 +50,15 @@ export function UsersTab({ onViewSessions }: { onViewSessions: (userId: string) 
 
   return (
     <div className="stack-4">
+      <div className="notice notice-danger">
+        <ShieldAlert size={16} aria-hidden />
+        <span className="small">
+          Đổi quyền hoặc khóa người dùng sẽ <b>thu hồi TOÀN BỘ phiên &amp; thiết bị tin cậy</b> của
+          người đó NGAY (ADM-01). Không xóa được user đã có thao tác — chỉ khóa (ADM-04).
+        </span>
+      </div>
       <div className="between" style={{ flexWrap: 'wrap', gap: 8 }}>
-        <p className="caption">
-          Không xóa được người dùng đã có thao tác — chỉ khóa (ADM-04). Khóa/đổi vai sẽ thu hồi phiên
-          &amp; thiết bị NGAY.
-        </p>
+        <h3 className="h3">Người dùng</h3>
         <button className="btn btn-primary btn-sm" onClick={() => setModal({ kind: 'create' })}>
           <UserPlus size={15} aria-hidden />
           Thêm người dùng
@@ -86,7 +91,14 @@ export function UsersTab({ onViewSessions }: { onViewSessions: (userId: string) 
                   return (
                     <tr key={u.id}>
                       <td className="num">{u.username}</td>
-                      <td className="wrap-anywhere">{u.fullName}</td>
+                      <td className="wrap-anywhere">
+                        <span className="row" style={{ gap: 8 }}>
+                          <span className="avatar-sm" aria-hidden>
+                            {u.fullName.trim().charAt(0).toUpperCase() || '?'}
+                          </span>
+                          {u.fullName}
+                        </span>
+                      </td>
                       <td>
                         <Badge tone="neutral" icon={false}>
                           {roleVi[u.roleKey] ?? u.roleKey}

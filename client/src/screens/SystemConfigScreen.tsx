@@ -87,11 +87,11 @@ export function SystemConfigScreen() {
                         // Sửa được khi: không khóa cứng VÀ giá trị là scalar (PUT chỉ nhận scalar).
                         const editable = !item.locked && isScalarConfigValue(item.value);
                         return (
-                          <tr key={item.key}>
+                          <tr key={item.key} className={item.locked ? 'locked-cfg-row' : ''}>
                             <td className="num wrap-anywhere">{item.key}</td>
                             <td className="num">
                               {item.locked ? (
-                                <Badge tone="neutral" icon={false}>
+                                <Badge tone="danger" icon={false}>
                                   <Lock size={12} aria-hidden /> ∞ khóa cứng
                                 </Badge>
                               ) : (
