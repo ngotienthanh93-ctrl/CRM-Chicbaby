@@ -9,6 +9,8 @@ import {
   PackageX,
   Search as SearchIcon,
   ArrowRightLeft,
+  Store,
+  CircleAlert,
 } from 'lucide-react';
 import { api } from '../api/client';
 import type { OrgDetail, OrgSummary } from '../api/types';
@@ -50,7 +52,9 @@ function OrgListView({ onOpen }: { onOpen: (id: string) => void }) {
         (state.data.items.length === 0 ? (
           <EmptyState title="Chưa có đại lý" hint="Đại lý sẽ hiển thị khi có dữ liệu." />
         ) : (
-          <div className="stack">
+          <div className="stack-4">
+            <StatusSummary items={state.data.items} />
+            <div className="stack">
             {state.data.items.map((o) => (
               <button key={o.id} className="card card-pad stack-2 link-row" onClick={() => onOpen(o.id)} style={{ textAlign: 'left', width: '100%' }}>
                 <div className="between">
@@ -76,8 +80,28 @@ function OrgListView({ onOpen }: { onOpen: (id: string) => void }) {
                 </div>
               </button>
             ))}
+            </div>
           </div>
         ))}
+    </div>
+  );
+}
+
+/** Dải tổng hợp số đại lý theo trạng thái (đếm client-side, không gọi API). */
+function StatusSummary({ items }: { items: OrgSummary[] }) {
+  const counts = new Map<string, number>();
+  for (const o of items) counts.set(o.status, (counts.get(o.status) ?? 0) + 1);
+  const order = ['at_risk', 'slow', 'active', 'paused', 'lost', 'collecting'];
+  const entries = [...counts.entries()].sort(
+    (a, b) => order.indexOf(a[0]) - order.indexOf(b[0]),
+  );
+  return (
+    <div className="row-wrap" style={{ gap: 8 }}>
+      {entries.map(([status, n]) => (
+        <Badge key={status} tone={orgStatusTone[status] ?? 'neutral'} icon={false}>
+          {n} {(orgStatusVi[status] ?? status).toLowerCase()}
+        </Badge>
+      ))}
     </div>
   );
 }
@@ -110,16 +134,21 @@ function OrgDetailView({ id, onBack }: { id: string; onBack: () => void }) {
       {state.status === 'success' && (
         <>
           <div className="card detail-head">
-            <div className="between" style={{ alignItems: 'flex-start' }}>
-              <div className="stack-2" style={{ gap: 6 }}>
-                <div className="detail-title">{state.data.orgName}</div>
+            <div className="detail-head-top">
+              <span className={`detail-icon tone-${orgStatusTone[state.data.status] ?? 'neutral'}`} aria-hidden>
+                <Store size={22} />
+              </span>
+              <div className="grow stack-2" style={{ gap: 6 }}>
+                <div className="chip-row">
+                  <span className="detail-title">{state.data.orgName}</span>
+                  <Badge tone={orgStatusTone[state.data.status] ?? 'neutral'} icon={false}>
+                    {orgStatusVi[state.data.status] ?? state.data.status}
+                  </Badge>
+                </div>
                 <div className="caption">
                   {[state.data.district, state.data.province].filter(Boolean).join(', ') || 'Chưa có địa chỉ'}
                 </div>
               </div>
-              <Badge tone={orgStatusTone[state.data.status] ?? 'neutral'} icon={false}>
-                {orgStatusVi[state.data.status] ?? state.data.status}
-              </Badge>
             </div>
             {state.data.badges.length > 0 && (
               <div className="chip-row">
@@ -199,6 +228,14 @@ function HealthTab({ detail }: { detail: OrgDetail }) {
       {collecting && (
         <div className="disclaimer">
           Đang thu thập nhịp nhập (cần ≥3 lần nhập) — chưa đưa ra cảnh báo nguy cơ mất.
+        </div>
+      )}
+      {detail.status === 'at_risk' && detail.reasonStatus === 'unknown' && (
+        <div className="notice notice-warning">
+          <CircleAlert size={16} aria-hidden />
+          <span className="small">
+            Lý do suy giảm: <b>CHƯA XÁC ĐỊNH</b> — cần gọi tìm hiểu. Hệ thống không bắt bạn đoán lý do.
+          </span>
         </div>
       )}
       <div className="info-grid">

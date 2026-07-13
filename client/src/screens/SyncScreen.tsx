@@ -107,35 +107,51 @@ export function SyncScreen() {
 function StatusTab({ state }: { state: ReturnType<typeof useApi<SyncStatusResponse>> }) {
   if (state.status === 'loading') return <SkeletonCards count={3} />;
   if (state.status === 'error') return <ErrorState error={state.error} onRetry={state.reload} />;
+  const totalErrors = state.data.items.reduce((s, it) => s + it.errorCount, 0);
   return (
-    <div className="card list-card">
-      <div className="list-scroll">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Đối tượng</th>
-              <th>Đồng bộ lần cuối</th>
-              <th>Số bản ghi</th>
-              <th>Lỗi</th>
-            </tr>
-          </thead>
-          <tbody>
-            {state.data.items.map((it) => (
-              <tr key={it.objectType}>
-                <td>{it.label}</td>
-                <td className="num">{it.lastSyncAt ?? 'Chưa đồng bộ'}</td>
-                <td className="num">{it.recordCount.toLocaleString('vi-VN')}</td>
-                <td>
-                  {it.errorCount > 0 ? (
-                    <Badge tone="danger" icon={false}>{it.errorCount} lỗi</Badge>
-                  ) : (
-                    <Badge tone="success" icon={false}>Sạch</Badge>
-                  )}
-                </td>
+    <div className="stack-4">
+      <div className={`notice ${totalErrors > 0 ? 'notice-warning' : 'notice-success'}`}>
+        {totalErrors > 0 ? <CircleAlert size={16} aria-hidden /> : <CheckCircle2 size={16} aria-hidden />}
+        <span className="small">
+          {totalErrors > 0
+            ? `Có ${totalErrors} lỗi đồng bộ cần xử lý — xem chi tiết bên dưới.`
+            : 'Kết nối bình thường — mọi đối tượng đã đồng bộ sạch.'}
+        </span>
+      </div>
+      <div className="card list-card">
+        <div className="list-scroll">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Đối tượng</th>
+                <th>Đồng bộ lần cuối</th>
+                <th>Số bản ghi</th>
+                <th>Lỗi</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {state.data.items.map((it) => (
+                <tr key={it.objectType}>
+                  <td>
+                    <span className="row" style={{ gap: 8 }}>
+                      <span className={`sync-dot ${it.errorCount > 0 ? 'is-error' : 'is-ok'}`} aria-hidden />
+                      {it.label}
+                    </span>
+                  </td>
+                  <td className="num">{it.lastSyncAt ?? 'Chưa đồng bộ'}</td>
+                  <td className="num">{it.recordCount.toLocaleString('vi-VN')}</td>
+                  <td>
+                    {it.errorCount > 0 ? (
+                      <Badge tone="danger" icon={false}>{it.errorCount} lỗi</Badge>
+                    ) : (
+                      <Badge tone="success" icon={false}>Sạch</Badge>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

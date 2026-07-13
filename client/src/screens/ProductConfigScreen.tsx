@@ -38,6 +38,16 @@ export function ProductConfigScreen() {
         </div>
       </div>
 
+      {dq.status === 'success' && dq.data.productsNeedCycle > 0 && (
+        <div className="notice notice-warning" style={{ marginBottom: 16 }}>
+          <AlertTriangle size={16} aria-hidden />
+          <span className="small">
+            <b className="num">{dq.data.productsNeedCycle}</b> sản phẩm chưa duyệt chu kỳ — CHƯA nhắc
+            tái mua được cho các SP này.
+          </span>
+        </div>
+      )}
+
       {dq.status === 'success' && (
         <div className="dq-strip">
           <DqCard label="SP cần khai chu kỳ" value={dq.data.productsNeedCycle} tone="warning" />
@@ -59,36 +69,42 @@ export function ProductConfigScreen() {
         (state.data.items.length === 0 ? (
           <EmptyState title="Chưa có sản phẩm" hint="Sản phẩm đồng bộ từ KiotViet sẽ hiển thị tại đây." />
         ) : (
-          <div className="card list-card">
-            <div className="list-scroll">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Sản phẩm</th>
-                    <th>Chế độ gắn bé</th>
-                    <th>Chu kỳ gợi ý</th>
-                    <th>Chu kỳ duyệt</th>
-                    <th>Nhóm thay thế</th>
-                    <th>Nhắc</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {state.data.items.map((p) => (
-                    <ProductRow
-                      key={p.kvProductId}
-                      product={p}
-                      groups={groups}
-                      canEditMeta={canEditMeta}
-                      canApprove={canApprove}
-                      onChanged={() => {
-                        state.reload();
-                        dq.reload();
-                      }}
-                    />
-                  ))}
-                </tbody>
-              </table>
+          <div className="stack-2">
+            <div className="card list-card">
+              <div className="list-scroll">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Sản phẩm</th>
+                      <th>Chế độ gắn bé</th>
+                      <th>Chu kỳ gợi ý</th>
+                      <th>Chu kỳ duyệt</th>
+                      <th>Nhóm thay thế</th>
+                      <th>Nhắc</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {state.data.items.map((p) => (
+                      <ProductRow
+                        key={p.kvProductId}
+                        product={p}
+                        groups={groups}
+                        canEditMeta={canEditMeta}
+                        canApprove={canApprove}
+                        onChanged={() => {
+                          state.reload();
+                          dq.reload();
+                        }}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
+            <p className="caption">
+              Chu kỳ = số ngày dùng hết MỘT đơn vị (1 lon / 1 hộp) — hệ thống nhân với số lượng để
+              ước lượng ngày hết.
+            </p>
           </div>
         ))}
     </div>

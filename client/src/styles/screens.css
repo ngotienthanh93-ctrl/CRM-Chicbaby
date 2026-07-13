@@ -295,6 +295,34 @@
   box-shadow: var(--shadow-gold);
   flex: 0 0 auto;
 }
+/* Icon-chip đầu thẻ chi tiết (SCR-09 đại lý) — tô theo tông trạng thái */
+.detail-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  flex: 0 0 auto;
+  background: var(--c-neutral-weak);
+  color: var(--c-neutral);
+}
+.detail-icon.tone-danger {
+  background: var(--c-danger-weak);
+  color: var(--c-danger);
+}
+.detail-icon.tone-warning {
+  background: var(--c-warning-weak);
+  color: var(--c-warning);
+}
+.detail-icon.tone-attention {
+  background: var(--c-attention-weak);
+  color: var(--c-attention);
+}
+.detail-icon.tone-success {
+  background: var(--c-success-weak);
+  color: var(--c-success);
+}
 .detail-title {
   font-size: var(--fs-h1);
   font-weight: 800;
@@ -650,6 +678,20 @@
 }
 .pick-row.selected {
   background: var(--c-success-weak);
+}
+
+/* Chấm trạng thái đồng bộ (SCR-12) */
+.sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-pill);
+  flex: 0 0 auto;
+}
+.sync-dot.is-ok {
+  background: var(--c-success);
+}
+.sync-dot.is-error {
+  background: var(--c-danger);
 }
 
 /* Thanh tiến độ chất lượng dữ liệu (RPT-06) */
