@@ -73,7 +73,8 @@ export interface ExperimentExclusionSignals {
 /**
  * 🔴 Xét một khách/việc có bị loại khỏi thí nghiệm holdout theo 6 luật khóa cứng.
  * Trả danh sách reason (đúng key trong HARD_EXCLUSION_RULES) để audit/giải thích.
- * (THUẦN — chưa wire vào phân bổ holdout thực tế; xem TODO ở generate.ts.)
+ * (THUẦN — đã wire vào phân bổ holdout production qua `classifyForExperiment`,
+ *  gọi từ worker `modules/experiments/assignment.service.ts`.)
  */
 export function isExcludedFromExperiment(signals: ExperimentExclusionSignals): {
   excluded: boolean;
