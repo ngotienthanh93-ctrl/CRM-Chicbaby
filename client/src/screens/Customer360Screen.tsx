@@ -113,46 +113,54 @@ function CustomerHeader({ detail }: { detail: CustomerDetail }) {
 
   const phoneText = (id: string, masked: string | null) => revealed[id] ?? masked ?? '—';
 
+  const initial = detail.displayName.trim().charAt(0).toUpperCase() || '?';
+
   return (
     <div className="card detail-head">
-      <div className="between" style={{ alignItems: 'flex-start' }}>
-        <div className="stack-2" style={{ gap: 6 }}>
-          <div className="detail-title">{detail.displayName}</div>
+      <div className="detail-head-top">
+        <span className="detail-avatar" aria-hidden>
+          {initial}
+        </span>
+        <div className="grow stack-2" style={{ gap: 6 }}>
           <div className="chip-row">
-            {primary && (
-              <span className="phone-chip">
-                <Phone size={15} aria-hidden />
-                {phoneText(primary.id, primary.phone)}
-              </span>
-            )}
-            {detail.masked && permissions?.viewSensitive && (
-              <button className="btn btn-outline btn-sm" onClick={reveal}>
-                <Eye size={15} aria-hidden />
-                Xem đầy đủ
-              </button>
+            <span className="detail-title">{detail.displayName}</span>
+            <Badge
+              tone={detail.roles.includes('wholesale_contact') ? 'primary' : 'neutral'}
+              icon={false}
+            >
+              {roleLabel(detail.roles)}
+            </Badge>
+          </div>
+          {primary && (
+            <span className="phone-chip">
+              <Phone size={15} aria-hidden />
+              {phoneText(primary.id, primary.phone)}
+            </span>
+          )}
+          <div className="chip-row" style={{ gap: 6 }}>
+            {detail.kvCodes.length > 0 ? (
+              detail.kvCodes.map((code) => (
+                <span key={code} className="kv-badge">
+                  {code}
+                </span>
+              ))
+            ) : (
+              <span className="small muted">Chưa liên kết mã KiotViet (CRM only)</span>
             )}
           </div>
         </div>
-        <Badge tone={detail.roles.includes('wholesale_contact') ? 'primary' : 'neutral'} icon={false}>
-          {roleLabel(detail.roles)}
-        </Badge>
-      </div>
-
-      <div className="chip-row">
-        {detail.kvCodes.length > 0 ? (
-          detail.kvCodes.map((code) => (
-            <span key={code} className="kv-badge">
-              {code}
-            </span>
-          ))
-        ) : (
-          <span className="small muted">Chưa liên kết mã KiotViet (CRM only)</span>
+        {detail.masked && permissions?.viewSensitive && (
+          <button className="btn btn-primary" onClick={reveal}>
+            <Eye size={16} aria-hidden />
+            Xem đầy đủ
+          </button>
         )}
       </div>
 
       {detail.consents.length > 0 && (
-        <div className="chip-row">
-          <ShieldCheck size={15} aria-hidden className="muted" />
+        <div className="consent-strip">
+          <ShieldCheck size={15} aria-hidden />
+          <span className="consent-strip-label">Consent:</span>
           {dedupeConsents(detail.consents).map((c) => (
             <Badge key={c.type} tone={c.status === 'granted' ? 'success' : 'neutral'} icon={false}>
               {consentTypeVi[c.type] ?? c.name}: {consentStatusVi[c.status] ?? c.status}
