@@ -22,6 +22,7 @@ import { productsRouter } from './modules/products/products.router';
 import { configRouter } from './modules/config/config.router';
 import { reportsRouter } from './modules/reports/reports.router';
 import { adminRouter } from './modules/admin/admin.router';
+import { experimentsRouter } from './modules/experiments/experiments.router';
 
 export function createApp() {
   const app = express();
@@ -85,6 +86,7 @@ export function createApp() {
   app.use('/api/config', configRouter);
   app.use('/api/reports', reportsRouter);
   app.use('/api/admin', adminRouter);
+  app.use('/api/experiments', experimentsRouter);
 
   // 404 + error handler (đặt cuối)
   app.use(notFoundHandler);

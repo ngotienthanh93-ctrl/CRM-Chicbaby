@@ -3,7 +3,11 @@ import {
   assignExperimentGroup,
   computeUplift,
   countDistinctRepurchaseCustomers,
+  HARD_EXCLUSION_RULES,
+  enforceHardExclusions,
+  isExcludedFromExperiment,
   type ConversionRow,
+  type ExperimentExclusionSignals,
 } from './experiment';
 
 describe('experiment — phân nhóm ổn định (🔴 EXP-01)', () => {
@@ -118,5 +122,104 @@ describe('uplift — đếm DISTINCT khách mua lại + cửa sổ thí nghiệm
       row({ customerId: 'c1', matchedAt: null }),
     ];
     expect(countDistinctRepurchaseCustomers(rows, win, { attributedOnly: false })).toBe(0);
+  });
+});
+
+describe('experiment — 6 luật loại trừ KHÓA CỨNG (🔴 EXP §12.3)', () => {
+  const EXPECTED_KEYS = [
+    'vip_customer',
+    'agency_at_risk',
+    'callback_requested',
+    'complaint_open',
+    'order_delivery_debt_open',
+    'service_contact',
+  ];
+
+  it('🔴 HARD_EXCLUSION_RULES có ĐỦ 6 luật, đúng key + có nhãn tiếng Việt', () => {
+    expect(HARD_EXCLUSION_RULES).toHaveLength(6);
+    expect(HARD_EXCLUSION_RULES.map((r) => r.key)).toEqual(EXPECTED_KEYS);
+    for (const rule of HARD_EXCLUSION_RULES) {
+      expect(rule.label.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('🔴 enforceHardExclusions: input rỗng/undefined => vẫn ĐỦ 6 luật', () => {
+    expect(enforceHardExclusions().sort()).toEqual([...EXPECTED_KEYS].sort());
+    expect(enforceHardExclusions([]).sort()).toEqual([...EXPECTED_KEYS].sort());
+  });
+
+  it('🔴 enforceHardExclusions: input THIẾU (chỉ 1 luật) => server ép đủ 6, không cho bỏ', () => {
+    const out = enforceHardExclusions(['vip_customer']);
+    expect(out.sort()).toEqual([...EXPECTED_KEYS].sort());
+  });
+
+  it('🔴 enforceHardExclusions: input THỪA (luật lạ) => bỏ luật lạ, giữ đủ 6', () => {
+    const out = enforceHardExclusions(['vip_customer', 'random_rule', 'bo_qua_khac']);
+    expect(out.sort()).toEqual([...EXPECTED_KEYS].sort());
+    expect(out).not.toContain('random_rule');
+  });
+
+  it('🔴 enforceHardExclusions: input TRÙNG lặp => không nhân bản (đúng 6, distinct)', () => {
+    const out = enforceHardExclusions(['vip_customer', 'vip_customer', 'service_contact']);
+    expect(out).toHaveLength(6);
+    expect(new Set(out).size).toBe(6);
+  });
+});
+
+describe('experiment — isExcludedFromExperiment (🔴 từng luật + tổ hợp)', () => {
+  const NONE: ExperimentExclusionSignals = {
+    isVip: false,
+    agencyAtRisk: false,
+    callbackRequested: false,
+    hasComplaint: false,
+    hasOpenOrderDeliveryDebt: false,
+    isServiceContact: false,
+  };
+
+  it('không tín hiệu nào => KHÔNG loại trừ, reasons rỗng', () => {
+    const r = isExcludedFromExperiment(NONE);
+    expect(r.excluded).toBe(false);
+    expect(r.reasons).toEqual([]);
+  });
+
+  it('🔴 từng luật đơn lẻ => excluded=true, đúng 1 reason key tương ứng', () => {
+    const cases: Array<[keyof ExperimentExclusionSignals, string]> = [
+      ['isVip', 'vip_customer'],
+      ['agencyAtRisk', 'agency_at_risk'],
+      ['callbackRequested', 'callback_requested'],
+      ['hasComplaint', 'complaint_open'],
+      ['hasOpenOrderDeliveryDebt', 'order_delivery_debt_open'],
+      ['isServiceContact', 'service_contact'],
+    ];
+    for (const [signal, key] of cases) {
+      const r = isExcludedFromExperiment({ ...NONE, [signal]: true });
+      expect(r.excluded).toBe(true);
+      expect(r.reasons).toEqual([key]);
+    }
+  });
+
+  it('🔴 tổ hợp nhiều tín hiệu => gộp mọi reason vi phạm', () => {
+    const r = isExcludedFromExperiment({
+      ...NONE,
+      isVip: true,
+      hasComplaint: true,
+      isServiceContact: true,
+    });
+    expect(r.excluded).toBe(true);
+    expect(r.reasons.sort()).toEqual(['complaint_open', 'service_contact', 'vip_customer'].sort());
+  });
+
+  it('🔴 mọi reason từ isExcludedFromExperiment đều là key hợp lệ trong HARD_EXCLUSION_RULES', () => {
+    const allKeys = new Set(HARD_EXCLUSION_RULES.map((x) => x.key));
+    const r = isExcludedFromExperiment({
+      isVip: true,
+      agencyAtRisk: true,
+      callbackRequested: true,
+      hasComplaint: true,
+      hasOpenOrderDeliveryDebt: true,
+      isServiceContact: true,
+    });
+    for (const reason of r.reasons) expect(allKeys.has(reason)).toBe(true);
+    expect(r.reasons).toHaveLength(6);
   });
 });

@@ -20,6 +20,75 @@ export function assignExperimentGroup(
   return bucket < holdoutRatio ? 'holdout' : 'treatment';
 }
 
+// ---------- EXP §12.3: 6 luật loại trừ KHÓA CỨNG khỏi thí nghiệm holdout ----------
+export interface HardExclusionRule {
+  key: string;
+  /** Nhãn tiếng Việt hiển thị trên SCR-15 (checkbox khóa, không cho bỏ tick). */
+  label: string;
+}
+
+/**
+ * 🔴 EXP §12.3: 6 luật loại trừ KHÓA CỨNG — LUÔN áp dụng, KHÔNG cho bỏ tick.
+ * Các khách/việc dính bất kỳ luật nào KHÔNG BAO GIỜ bị đưa vào nhóm holdout
+ * (tránh làm hại quan hệ khách quan trọng / vi phạm nguyên tắc service_contact ∞).
+ */
+export const HARD_EXCLUSION_RULES: readonly HardExclusionRule[] = [
+  { key: 'vip_customer', label: 'Khách VIP' },
+  { key: 'agency_at_risk', label: 'Đại lý có nguy cơ (at_risk)' },
+  { key: 'callback_requested', label: 'Khách đã yêu cầu gọi lại' },
+  { key: 'complaint_open', label: 'Đang có khiếu nại' },
+  { key: 'order_delivery_debt_open', label: 'Đơn/giao/công nợ đang mở' },
+  { key: 'service_contact', label: 'Việc chăm sóc bắt buộc (service_contact)' },
+] as const;
+
+const HARD_EXCLUSION_KEYS: readonly string[] = HARD_EXCLUSION_RULES.map((r) => r.key);
+const HARD_EXCLUSION_KEY_SET = new Set(HARD_EXCLUSION_KEYS);
+
+/**
+ * 🔴 Ép danh sách luật loại trừ LUÔN chứa ĐỦ 6 luật khóa cứng, không trùng.
+ * Dù client gửi rỗng/thiếu/thừa/trùng: server không cho bỏ luật nào; luật lạ (ngoài 6) bị loại.
+ * Trả về theo thứ tự chuẩn (6 luật khóa cứng trước).
+ */
+export function enforceHardExclusions(rules?: string[]): string[] {
+  const valid = (rules ?? []).filter((r) => HARD_EXCLUSION_KEY_SET.has(r));
+  return [...new Set<string>([...HARD_EXCLUSION_KEYS, ...valid])];
+}
+
+/** Tín hiệu nghiệp vụ để xét một khách/việc có bị loại khỏi thí nghiệm không. */
+export interface ExperimentExclusionSignals {
+  /** Khách VIP. */
+  isVip: boolean;
+  /** Đại lý đang ở trạng thái at_risk. */
+  agencyAtRisk: boolean;
+  /** Khách đã yêu cầu gọi lại. */
+  callbackRequested: boolean;
+  /** Đang có khiếu nại mở. */
+  hasComplaint: boolean;
+  /** Đơn/giao/công nợ đang mở. */
+  hasOpenOrderDeliveryDebt: boolean;
+  /** Việc thuộc loại service_contact (chăm sóc bắt buộc — trần ∞). */
+  isServiceContact: boolean;
+}
+
+/**
+ * 🔴 Xét một khách/việc có bị loại khỏi thí nghiệm holdout theo 6 luật khóa cứng.
+ * Trả danh sách reason (đúng key trong HARD_EXCLUSION_RULES) để audit/giải thích.
+ * (THUẦN — chưa wire vào phân bổ holdout thực tế; xem TODO ở generate.ts.)
+ */
+export function isExcludedFromExperiment(signals: ExperimentExclusionSignals): {
+  excluded: boolean;
+  reasons: string[];
+} {
+  const reasons: string[] = [];
+  if (signals.isVip) reasons.push('vip_customer');
+  if (signals.agencyAtRisk) reasons.push('agency_at_risk');
+  if (signals.callbackRequested) reasons.push('callback_requested');
+  if (signals.hasComplaint) reasons.push('complaint_open');
+  if (signals.hasOpenOrderDeliveryDebt) reasons.push('order_delivery_debt_open');
+  if (signals.isServiceContact) reasons.push('service_contact');
+  return { excluded: reasons.length > 0, reasons };
+}
+
 // ---------- RPT-04: đếm DISTINCT khách mua lại trong cửa sổ thí nghiệm ----------
 export interface ConversionRow {
   /** khách gắn với follow-up của conversion (null ⇒ bỏ qua). */

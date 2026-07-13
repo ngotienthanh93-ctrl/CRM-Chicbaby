@@ -18,7 +18,7 @@ import {
   generateConsumptionFollowUps,
   generateReplenishmentFollowUps,
 } from '../src/engines/generate';
-import { assignExperimentGroup } from '../src/engines/experiment';
+import { assignExperimentGroup, isExcludedFromExperiment } from '../src/engines/experiment';
 import type { Prisma } from '@prisma/client';
 
 // ---------- Mốc thời gian cố định ----------
@@ -894,13 +894,26 @@ async function main() {
     },
   });
   // 🔴 EXP-01: gán nhóm theo hash(customerId+experimentId) — ~10% holdout, ổn định.
-  // 🔴 LOẠI VIP/at_risk: 'both_1' (khách vừa lẻ vừa sỉ) coi như VIP => không đưa vào thí nghiệm.
+  // 🔴 6 LUẬT LOẠI TRỪ KHÓA CỨNG: áp qua predicate engine `isExcludedFromExperiment` (KHÔNG ad-hoc) —
+  // khách bị loại KHÔNG vào thí nghiệm (không treatment, không holdout). Signals lấy từ dữ liệu seed:
+  //   - VIP: 'both_1' (khách vừa lẻ vừa sỉ).
+  //   - service_contact/khiếu nại: khách có việc frequencyCapScope='service_contact' (consultCust).
   const holdoutCustomerIds = new Set<string>();
   const treatmentCustomerIds = new Set<string>();
   const vipKeys = new Set<string>(['both_1']);
+  const serviceContactKeys = new Set<string>([consultCust.def.key]);
   for (const r of runtime) {
     if (!r.def.roles.includes('retail_customer')) continue;
-    if (vipKeys.has(r.def.key)) continue; // loại VIP/at_risk
+    // 🔴 loại trừ theo hợp đồng engine — đảm bảo VIP/service_contact… KHÔNG bao giờ vào nhóm holdout.
+    const excluded = isExcludedFromExperiment({
+      isVip: vipKeys.has(r.def.key),
+      agencyAtRisk: false,
+      callbackRequested: false,
+      hasComplaint: serviceContactKeys.has(r.def.key),
+      hasOpenOrderDeliveryDebt: false,
+      isServiceContact: serviceContactKeys.has(r.def.key),
+    }).excluded;
+    if (excluded) continue;
     const group = assignExperimentGroup(r.customerId, experiment.id, Number(experiment.holdoutRatio));
     await prisma.experimentAssignment.create({
       data: { experimentId: experiment.id, customerId: r.customerId, group: group as never },
