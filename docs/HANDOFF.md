@@ -1,6 +1,6 @@
 # HANDOFF — CRM Chicbaby (bàn giao giữa các phiên)
 
-> Đọc file này ĐẦU TIÊN khi mở lại dự án ở phiên sau. Cập nhật lần cuối: **2026-07-13** (GĐ3 **SCR-14 + SCR-15 xong** — 16/16 màn + 2 màn quản trị cuối; đã qua Codex impl + security review).
+> Đọc file này ĐẦU TIÊN khi mở lại dự án ở phiên sau. Cập nhật lần cuối: **2026-07-13** (GĐ3 **SCR-14 + SCR-15 xong** — 16/16 màn; + **production hardening**: login/reauth throttle → DB, npm audit sạch; tất cả qua Codex impl + security review).
 > Nguồn sự thật chi tiết: [`CLAUDE.md`](../CLAUDE.md) (kiến trúc/cách chạy/nguyên tắc) + [`docs/SPEC-DIGEST.md`](SPEC-DIGEST.md) (luật nghiệp vụ + màn hình + §11 Giai đoạn 2).
 
 ## 1. Sản phẩm là gì
@@ -46,9 +46,9 @@ Tài khoản seed (pass `chicbaby@123`): `chushop · crm · cskh · marketing ·
 ## 5. CHƯA làm (backlog — schema đã dựng sẵn)
 - **Worker phân bổ holdout PRODUCTION** (🔴 quan trọng): hiện CHỈ seed gán `experiment_assignments` + điền `holdoutCustomerIds` cho generation (đã enforce 6 luật loại trừ qua `isExcludedFromExperiment`). Chưa có worker chạy-thật: với thí nghiệm `running`, gán nhóm bằng `assignExperimentGroup`, **loại khách qua `isExcludedFromExperiment`** (cần signals thật: isVip/agencyAtRisk/callback/complaint/đơn-giao-nợ/service_contact — một số chưa có cột trong schema ⇒ cần model + migration), rồi truyền tập holdout vào `generate.ts`. Predicate + `enforceHardExclusions` đã sẵn ở `engines/experiment.ts`.
 - **Webhook KiotViet THẬT** (hiện mirror nạp bằng seed; có `sync_events`/`sync_state` sẵn; full-resync/webhook đang mô phỏng state).
-- 2FA/thiết bị tin cậy đầy đủ (hiện session cookie; reauth + login lockout **in-memory**).
+- 2FA/thiết bị tin cậy đầy đủ (hiện session cookie; reauth + login lockout **đã lưu DB** — `throttle_entries`).
 - Export dữ liệu có duyệt (workflow đầy đủ) · gộp hồ sơ bé (hiện chỉ gắn cờ `suspectedDuplicateBaby`).
-- **Bảo mật cần làm khi lên production**: chuyển reauth/login lockout in-memory → DB/Redis; chạy `npm audit` (chưa chạy được do môi trường offline).
+- **Bảo mật production ĐÃ làm** (2026-07-13): reauth/login lockout chuyển sang **DB** (`throttle_entries`, key sha256, đóng burst song song bằng `reserveAttemptDb` reserve-then-verify, scheduled cleanup 10'); `npm audit` = **0 vulnerabilities**. CÒN lại: rate-limit EDGE (WAF/reverse-proxy) cho tấn công thể tích; đa-instance nên tách cleanup thành cron.
 
 ## 6. Cách làm việc đã dùng (giữ nguyên ở phiên sau)
 Quy trình đã chứng minh hiệu quả cho dự án này:
@@ -58,8 +58,8 @@ Quy trình đã chứng minh hiệu quả cho dự án này:
 4. **Commit theo cụm** trên nhánh riêng (không commit thẳng `main`), trailer `Co-Authored-By`. Chỉ commit/push khi người dùng yêu cầu.
 
 ## 7. Việc nên làm tiếp (đề xuất thứ tự)
-1. **Worker phân bổ holdout production** (§5) — nối `assignExperimentGroup` + `isExcludedFromExperiment` vào sinh việc thật; cần thêm signals khách (isVip…) ⇒ có thể phải thêm cột/model + migration.
-2. Chuyển reauth/login lockout in-memory → DB/Redis; chạy `npm audit`; **mở PR** (nhánh `feature/mvp-phase3` đã gồm 16/16 màn).
+1. **Worker phân bổ holdout production** (§5) — nối `assignExperimentGroup` + `isExcludedFromExperiment` vào sinh việc thật; cần thêm signals khách (isVip…) ⇒ có thể phải thêm cột/model + migration. (Lưu ý: hiện CHƯA có pipeline sinh việc production — generate.ts mới chỉ chạy trong seed.)
+2. ~~reauth/login lockout → DB; npm audit~~ **XONG 2026-07-13.** Còn: rate-limit EDGE cho production; **mở PR** (nhánh `feature/mvp-phase3` = 16/16 màn + hardening).
 3. Tích hợp **webhook KiotViet thật** (cần API Spike thật của shop — xem PRD Gate 2).
 
 ## 8. Cách RESUME ở phiên sau
