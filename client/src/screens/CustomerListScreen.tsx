@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Search, Phone, Baby as BabyIcon, Link2, GitMerge } from 'lucide-react';
 import { api } from '../api/client';
@@ -17,6 +17,13 @@ export function CustomerListScreen() {
   const [hasBaby, setHasBaby] = useState('');
   const [applied, setApplied] = useState({ search: '', role: '', hasBaby: '' });
 
+  // Gợi ý live: đẩy từ khóa vào bộ lọc áp dụng sau ~300ms ngừng gõ (bỏ yêu cầu bấm "Tìm").
+  // role/hasBaby là select ⇒ áp ngay ở onChange; effect này chỉ debounce ô tìm.
+  useEffect(() => {
+    const t = setTimeout(() => setApplied((a) => ({ ...a, search: search.trim() })), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const query = useMemo(() => {
     const p = new URLSearchParams();
     if (applied.search) p.set('search', applied.search);
@@ -33,7 +40,8 @@ export function CustomerListScreen() {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    setApplied({ search, role, hasBaby });
+    // Nút "Tìm" vẫn giữ (áp NGAY, bỏ chờ debounce). Trim để nhất quán với gợi ý live.
+    setApplied({ search: search.trim(), role, hasBaby });
   };
 
   return (
@@ -57,12 +65,30 @@ export function CustomerListScreen() {
             aria-label="Tìm khách hàng"
           />
         </div>
-        <select className="select" style={{ width: 'auto' }} value={role} onChange={(e) => setRole(e.target.value)} aria-label="Lọc theo vai">
+        <select
+          className="select"
+          style={{ width: 'auto' }}
+          value={role}
+          onChange={(e) => {
+            setRole(e.target.value);
+            setApplied((a) => ({ ...a, role: e.target.value }));
+          }}
+          aria-label="Lọc theo vai"
+        >
           <option value="">Tất cả vai</option>
           <option value="retail_customer">Khách lẻ</option>
           {canSeeWholesale && <option value="wholesale_contact">Liên hệ sỉ</option>}
         </select>
-        <select className="select" style={{ width: 'auto' }} value={hasBaby} onChange={(e) => setHasBaby(e.target.value)} aria-label="Lọc theo bé">
+        <select
+          className="select"
+          style={{ width: 'auto' }}
+          value={hasBaby}
+          onChange={(e) => {
+            setHasBaby(e.target.value);
+            setApplied((a) => ({ ...a, hasBaby: e.target.value }));
+          }}
+          aria-label="Lọc theo bé"
+        >
           <option value="">Có bé / chưa</option>
           <option value="true">Có hồ sơ bé</option>
           <option value="false">Chưa có bé</option>
