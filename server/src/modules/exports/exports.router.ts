@@ -272,11 +272,23 @@ exportsRouter.post(
   }),
 );
 
-/** Sinh dữ liệu theo phạm vi (đã duyệt ⇒ dữ liệu ĐẦY ĐỦ; soft-delete loại; giới hạn maxRows). */
-async function buildDataset(scope: DatasetScope, maxRows: number): Promise<Record<string, unknown>[]> {
+/**
+ * Sinh dữ liệu theo phạm vi (đã duyệt ⇒ dữ liệu ĐẦY ĐỦ; soft-delete loại; giới hạn maxRows).
+ * 🔴 BẤT BIẾN #6: người tải KHÔNG có viewOrganization KHÔNG được xuất khách sỉ (vai wholesale_contact)
+ * — kể cả khách "cả hai lẻ+sỉ" — và không xuất bé thuộc khách sỉ. Lọc theo quyền NGƯỜI TẢI, không phải
+ * theo người đề xuất (viewSensitive gate ở router-level; viewOrganization override độc lập nên phải lọc riêng).
+ */
+async function buildDataset(
+  scope: DatasetScope,
+  maxRows: number,
+  viewOrganization: boolean,
+): Promise<Record<string, unknown>[]> {
   if (scope === 'customers') {
     const rows = await prisma.customerCrm.findMany({
-      where: { deletedAt: null },
+      where: {
+        deletedAt: null,
+        ...(viewOrganization ? {} : { roles: { none: { role: 'wholesale_contact' } } }),
+      },
       include: { phones: true },
       orderBy: { createdAt: 'asc' },
       take: maxRows,
@@ -295,7 +307,11 @@ async function buildDataset(scope: DatasetScope, maxRows: number): Promise<Recor
   }
   // babies
   const rows = await prisma.babyProfile.findMany({
-    where: { deletedAt: null },
+    where: {
+      deletedAt: null,
+      // 🔴 BẤT BIẾN #6: loại bé thuộc khách sỉ khi người tải không có viewOrganization.
+      ...(viewOrganization ? {} : { customer: { is: { roles: { none: { role: 'wholesale_contact' } } } } }),
+    },
     orderBy: { createdAt: 'asc' },
     take: maxRows,
   });
@@ -335,7 +351,8 @@ exportsRouter.get(
 
     const { maxRows } = await activeExportConfig();
     // Đọc dữ liệu (thuần đọc, chưa có tác dụng phụ) TRƯỚC; nếu race thu hồi xảy ra, cổng dưới chặn → không trả.
-    const rows = await buildDataset(r.datasetScope as DatasetScope, maxRows);
+    // 🔴 Lọc khách sỉ theo quyền NGƯỜI TẢI (perms.viewOrganization) — hạ quyền là không xuất được khách sỉ.
+    const rows = await buildDataset(r.datasetScope as DatasetScope, maxRows, perms.viewOrganization);
     // 🔴 TOCTOU + audit atomic: CHỈ tăng downloadCount khi VẪN approved & chưa thu hồi & còn hạn (conditional),
     // + writeAudit trong CÙNG transaction. Revoke chen giữa lúc tải ⇒ cổng count=0 ⇒ KHÔNG trả dữ liệu nhạy cảm.
     await prisma.$transaction(async (tx) => {

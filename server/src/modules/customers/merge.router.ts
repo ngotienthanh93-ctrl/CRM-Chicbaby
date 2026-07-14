@@ -8,6 +8,7 @@ import { asyncHandler, badRequest, conflict, notFound } from '../../lib/http';
 import { requireAuth, requirePermission } from '../../middleware/auth';
 import { writeAudit } from '../../security/audit';
 import { maskPhone } from '../../security/masking';
+import { assertCustomerVisible, visibleCustomerWhere } from '../../security/customerVisibility';
 import { verifyReauth } from '../../security/reauth';
 import { formatVnDateTime } from '../../lib/datetime';
 import { DEFAULT_ENGINE_CONFIG } from '../../lib/config';
@@ -33,8 +34,9 @@ mergeRouter.get(
   '/dedup-candidates',
   asyncHandler(async (req, res) => {
     const perms = req.permissions!;
+    // 🔴 BẤT BIẾN #6: user thiếu viewOrganization KHÔNG thấy khách sỉ trong danh sách nghi trùng ⇒ loại từ nguồn.
     const customers = await prisma.customerCrm.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, ...visibleCustomerWhere(perms) },
       include: { phones: true },
     });
     const cands: MergeCandidateCustomer[] = customers.map((c) => ({
@@ -140,6 +142,11 @@ mergeRouter.post(
     if (!parsed.success) throw badRequest('Cần chọn khách GIỮ (master) và khách gộp vào.');
     if (parsed.data.masterId === parsed.data.mergedId)
       throw badRequest('Không thể gộp một khách với chính nó.');
+    // 🔴 BẤT BIẾN #6: manageCustomer nhưng thiếu viewOrganization (cskh/crm_officer bị hạ quyền) KHÔNG
+    // được preview gộp khi bất kỳ phía nào là KHÁCH SỈ. 404 KHỚP message not-found (không lộ tồn tại).
+    const perms = req.permissions!;
+    await assertCustomerVisible(parsed.data.masterId, perms, 'Không tìm thấy khách hàng để gộp.');
+    await assertCustomerVisible(parsed.data.mergedId, perms, 'Không tìm thấy khách hàng để gộp.');
     const [master, merged] = await Promise.all([
       loadSide(parsed.data.masterId),
       loadSide(parsed.data.mergedId),
@@ -166,6 +173,11 @@ mergeRouter.post(
       throw badRequest('Không thể gộp một khách với chính nó.');
     // 🔴 xác minh lại mật khẩu chủ shop — CÓ chống brute-force (CWE-307: khóa userId+IP, audit lần sai).
     await verifyReauth(req.auth!.userId, parsed.data.password, req.ip);
+
+    // 🔴 BẤT BIẾN #6 (phòng thủ chiều sâu): chặn gộp khi phía nào là KHÁCH SỈ mà thiếu viewOrganization.
+    // (approveMerge chỉ chu_shop ⇒ luôn viewOrganization=true ⇒ vô hại; giữ nếu ma trận quyền đổi sau.)
+    await assertCustomerVisible(parsed.data.masterId, req.permissions!);
+    await assertCustomerVisible(parsed.data.mergedId, req.permissions!);
 
     const { masterId, mergedId } = parsed.data;
     const now = new Date();
@@ -305,6 +317,11 @@ mergeRouter.post(
     });
     if (!history) throw notFound('Không tìm thấy lịch sử gộp cho khách này.');
 
+    // 🔴 BẤT BIẾN #6 (phòng thủ chiều sâu): không tách khách sỉ nếu thiếu viewOrganization.
+    // (approveMerge chỉ chu_shop ⇒ vô hại; message khớp not-found ở trên để không lộ tồn tại.)
+    await assertCustomerVisible(history.masterId, req.permissions!, 'Không tìm thấy lịch sử gộp cho khách này.');
+    await assertCustomerVisible(history.mergedId, req.permissions!, 'Không tìm thấy lịch sử gộp cho khách này.');
+
     // Mốc dữ liệu mới nhất gắn với master SAU khi gộp (follow-up/tư vấn/consent/bé/nhắc).
     const newestDataAt = await newestDataAfterMerge(history.masterId);
     if (!canUnmerge(history.mergedAt, newestDataAt)) {
@@ -329,6 +346,40 @@ mergeRouter.post(
       });
       throw conflict(
         `Đã phát sinh dữ liệu mới sau khi gộp — không thể tự tách. Đã tạo ticket xử lý tay #${ticket.id}.`,
+      );
+    }
+
+    // 🔴 BẤT BIẾN #6 (ISSUE-1): nếu master ĐANG mang vai wholesale_contact ⇒ lần gộp này LIÊN QUAN KHÁCH SỈ
+    // (merge đã chuyển vai mergedId→masterId; khách sỉ ở phía nào cũng để lại vai này trên master).
+    // Bản gọn GĐ2 chỉ bỏ soft-delete mergedId, KHÔNG khôi phục vai (MergeHistory chưa snapshot vai) ⇒ khách
+    // sỉ hồi sinh có thể MẤT vai wholesale_contact và lộ với user thiếu viewOrganization. Mitigation an toàn:
+    // KHÔNG tự tách — định tuyến sang ticket xử lý tay (giống nhánh "đã phát sinh dữ liệu mới") để khôi phục ĐÚNG vai.
+    // TODO(đợt sau): giải pháp CHUẨN là snapshot vai (roles) trong MergeHistory (đổi schema) rồi tự tách an toàn.
+    const masterRoles = await prisma.customerRole.findMany({
+      where: { customerId: history.masterId },
+      select: { role: true },
+    });
+    if (masterRoles.some((r) => r.role === 'wholesale_contact')) {
+      const ticket = await prisma.mergeUnmergeTicket.create({
+        data: {
+          mergeHistoryId: history.id,
+          masterId: history.masterId,
+          mergedId: history.mergedId,
+          reason:
+            parsed.data.reason ??
+            'Liên quan KHÁCH SỈ — cần xử lý tay để khôi phục đúng vai wholesale_contact khi tách (bản gọn GĐ2 chưa snapshot vai).',
+          requestedBy: req.auth!.userId,
+        },
+      });
+      await writeAudit({
+        userId: req.auth!.userId,
+        action: 'customer.unmerge_ticket',
+        objectType: 'customer',
+        objectId: history.masterId,
+        newValue: { ticketId: ticket.id, mergedId: history.mergedId, reason: 'wholesale' },
+      });
+      throw conflict(
+        `Lần gộp liên quan khách sỉ — không thể tự tách để tránh mất vai. Đã tạo ticket xử lý tay #${ticket.id}.`,
       );
     }
 

@@ -1,16 +1,40 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma';
-import { asyncHandler, notFound } from '../../lib/http';
+import { asyncHandler, badRequest, notFound } from '../../lib/http';
 import { requireAuth, requirePermission } from '../../middleware/auth';
 import { writeAudit } from '../../security/audit';
 import { maskPhone } from '../../security/masking';
 import { serializeBaby, serializeCustomerSummary, serializeFollowUpContent } from '../../security/serialize';
 import { formatVnDate } from '../../lib/datetime';
 import { normalizePhone } from '../../lib/phone';
+import { normalizeFacebook, normalizeZalo } from './socialLinks';
 
 export const customersRouter = Router();
 customersRouter.use(requireAuth);
+
+// 🔴 BẤT BIẾN #6 (chống IDOR): user KHÔNG có viewOrganization không được mở chi tiết khách sỉ.
+// Áp cho MỌI route con của /:id (detail, babies, consultations, purchases, followups, consents,
+// social-links, reveal-phone). `router.use('/:id', ...)` KHÔNG khớp GET '/' (path '/'), nên list vẫn chạy.
+// Đứng SAU requireAuth ⇒ req.permissions đã có. Ném 404 (KHÔNG lộ tồn tại khách sỉ).
+customersRouter.use(
+  '/:id',
+  asyncHandler(async (req, _res, next) => {
+    const perms = req.permissions!;
+    if (perms.viewOrganization) return next();
+    // Nạp bất kể deletedAt để chặn cả khách sỉ ĐÃ soft-delete (sub-route con đọc thẳng bảng con theo customerId).
+    const c = await prisma.customerCrm.findUnique({
+      where: { id: String(req.params.id) },
+      select: { deletedAt: true, roles: { select: { role: true } } },
+    });
+    // Khách không tồn tại / đã xóa ⇒ 404 (đồng nhất loadCustomer), tránh sub-route trả dữ liệu khách đã xóa.
+    if (!c || c.deletedAt) throw notFound('Không tìm thấy khách hàng.');
+    if (c.roles.some((r) => r.role === 'wholesale_contact')) {
+      throw notFound('Không tìm thấy khách hàng.');
+    }
+    next();
+  }),
+);
 
 const listQuery = z.object({
   search: z.string().optional(),
@@ -35,7 +59,13 @@ customersRouter.get(
     }
 
     const where: Record<string, unknown> = { deletedAt: null };
-    if (q.role) where.roles = { some: { role: q.role } };
+    // 🔴 BẤT BIẾN #6: user thiếu viewOrganization TUYỆT ĐỐI không thấy khách sỉ (vai wholesale_contact),
+    // kể cả khách "cả lẻ+sỉ". Gộp AN TOÀN với filter q.role: some (khớp vai chọn) + none (loại sỉ).
+    // Nếu q.role='wholesale_contact' mà thiếu quyền ⇒ some+none mâu thuẫn ⇒ rỗng (đúng: không cho xem sỉ).
+    const rolesFilter: Record<string, unknown> = {};
+    if (q.role) rolesFilter.some = { role: q.role };
+    if (!perms.viewOrganization) rolesFilter.none = { role: 'wholesale_contact' };
+    if (Object.keys(rolesFilter).length) where.roles = rolesFilter;
     if (q.hasBaby === 'true') where.babies = { some: { deletedAt: null } };
     if (q.hasBaby === 'false') where.babies = { none: { deletedAt: null } };
     if (q.tag) where.tagAssignments = { some: { tag: q.tag } };
@@ -92,6 +122,9 @@ customersRouter.get(
       displayName: c.displayName ?? c.fullName,
       retentionStatus: c.retentionStatus,
       preferredChannel: c.preferredChannel,
+      // FB/Zalo là dữ liệu CRM-owned, hiển thị cho MỌI vai xem được hồ sơ (KHÔNG gate viewSensitive).
+      facebook: c.facebook,
+      zalo: c.zalo,
       note: perms.viewSensitive ? c.note : null,
       phones: c.phones.map((p) => ({
         id: p.id,
@@ -111,6 +144,44 @@ customersRouter.get(
       })),
       masked: !perms.viewSensitive,
     });
+  }),
+);
+
+// Kênh liên hệ MXH (CRM-owned, KHÁC SĐT nguồn KV). Chỉ gửi field CÓ mặt trong body ⇒ cập nhật từng phần.
+export const socialLinksSchema = z.object({
+  facebook: z.string().max(500).nullish(),
+  zalo: z.string().max(500).nullish(),
+});
+
+// 🔴 Ghi FB/Zalo cần manageCustomer (BẤT BIẾN #6): vai thiếu quyền => 403 tại server, không chỉ ẩn ở UI.
+customersRouter.put(
+  '/:id/social-links',
+  requirePermission('manageCustomer'),
+  asyncHandler(async (req, res) => {
+    const parsed = socialLinksSchema.safeParse(req.body);
+    if (!parsed.success) throw badRequest('Dữ liệu kênh liên hệ không hợp lệ.');
+
+    const c = await loadCustomer(String(req.params.id));
+
+    // Chỉ đụng field được gửi lên; chuẩn hóa + kiểm tra XSS/host ở SERVER (ném 400 nếu link sai).
+    const data: { facebook?: string | null; zalo?: string | null } = {};
+    if (parsed.data.facebook !== undefined) data.facebook = normalizeFacebook(parsed.data.facebook);
+    if (parsed.data.zalo !== undefined) data.zalo = normalizeZalo(parsed.data.zalo);
+    if (Object.keys(data).length === 0) throw badRequest('Không có kênh liên hệ nào để cập nhật.');
+
+    const updated = await prisma.customerCrm.update({ where: { id: c.id }, data });
+
+    await writeAudit({
+      userId: req.auth!.userId,
+      action: 'customer.update_social_links',
+      objectType: 'customer',
+      objectId: c.id,
+      oldValue: { facebook: c.facebook, zalo: c.zalo },
+      newValue: { facebook: updated.facebook, zalo: updated.zalo },
+      ip: req.ip,
+    });
+
+    res.json({ ok: true, facebook: updated.facebook, zalo: updated.zalo });
   }),
 );
 
@@ -211,6 +282,41 @@ customersRouter.get(
       orderBy: { dueDate: 'desc' },
       take: 100,
     });
+
+    // 🔴 Ảnh bằng chứng CHỈ cho vai xử lý việc (processWork). Marketing => attachments: [] (KHÔNG query).
+    // Query riêng, KHÔNG select `data` (bytes nặng); chỉ metadata + URL stream.
+    type AttMeta = { id: string; url: string; uploadedByName: string | null; createdAt: string };
+    const attByFollowUp = new Map<string, AttMeta[]>();
+    if (perms.processWork && items.length > 0) {
+      const atts = await prisma.followUpAttachment.findMany({
+        where: { followUpId: { in: items.map((f) => f.id) }, deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, followUpId: true, uploadedBy: true, createdAt: true },
+      });
+      const uploaderIds = [...new Set(atts.map((a) => a.uploadedBy))];
+      const uploaderNames =
+        uploaderIds.length > 0
+          ? new Map(
+              (
+                await prisma.user.findMany({
+                  where: { id: { in: uploaderIds } },
+                  select: { id: true, fullName: true },
+                })
+              ).map((u) => [u.id, u.fullName]),
+            )
+          : new Map<string, string>();
+      for (const a of atts) {
+        const list = attByFollowUp.get(a.followUpId) ?? [];
+        list.push({
+          id: a.id,
+          url: `/api/followups/${a.followUpId}/attachments/${a.id}/file`,
+          uploadedByName: uploaderNames.get(a.uploadedBy) ?? null,
+          createdAt: formatVnDate(a.createdAt),
+        });
+        attByFollowUp.set(a.followUpId, list);
+      }
+    }
+
     res.json({
       items: items.map((f) => ({
         id: f.id,
@@ -223,6 +329,7 @@ customersRouter.get(
           targetType: f.targetType,
           content: f.content,
         }),
+        attachments: attByFollowUp.get(f.id) ?? [],
       })),
     });
   }),

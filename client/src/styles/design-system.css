@@ -782,3 +782,69 @@ textarea {
   border: none;
   margin: 0;
 }
+
+/* ============================================================================
+   Trung tâm thông báo hoạt động nhân viên (chuông topbar + màn Thông báo)
+   ============================================================================ */
+.notif-bell {
+  position: relative;
+}
+/* Badge số chưa đọc — chấm đỏ nhỏ ở góc chuông. */
+.notif-bell-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-pill);
+  background: var(--c-danger);
+  color: var(--c-text-invert);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  font-family: var(--font-num);
+  box-shadow: 0 0 0 2px var(--c-surface);
+}
+/* Dòng hoạt động chưa đọc — viền trái nhấn + nền vàng nhạt. */
+.notif-item.unread {
+  border-left: 3px solid var(--c-attention);
+  background: var(--c-attention-weak);
+}
+.notif-target {
+  font-weight: 600;
+  color: var(--c-text);
+}
+.notif-when {
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+/* Dòng thông báo có ảnh bằng chứng — render bằng <button> nên reset mặc định để trông như card. */
+.notif-item.clickable {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.notif-item.clickable:hover {
+  border-color: var(--c-border-strong);
+  box-shadow: var(--shadow-2), 0 0 0 1px var(--c-border-strong);
+}
+.notif-item.clickable:focus-visible {
+  border-radius: var(--r-card);
+}
+/* Affordance "N ảnh" cạnh nội dung dòng — dùng màu nhấn vàng, không phá layout. */
+.notif-evidence {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-left: var(--sp-2);
+  color: var(--c-primary);
+  font-weight: 600;
+  white-space: nowrap;
+}

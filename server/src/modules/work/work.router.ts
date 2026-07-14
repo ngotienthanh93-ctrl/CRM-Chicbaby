@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { asyncHandler } from '../../lib/http';
 import { requireAuth, requirePermission } from '../../middleware/auth';
@@ -30,10 +31,26 @@ workRouter.get(
     const now = new Date();
     const today = vnToday(now);
 
-    const whereBase = {
+    // 🔴 BẤT BIẾN #6: user thiếu viewOrganization không thấy việc ĐẠI LÝ (targetType='organization')
+    // LẪN việc của KHÁCH SỈ (khách có vai wholesale_contact, kể cả dual-role lẻ+sỉ) — ở CẢ "Việc của tôi"
+    // lẫn "Toàn đội". Dùng chung cho danh sách và KPI để số liệu khớp nhau.
+    const hideWholesale: Prisma.FollowUpWhereInput = perms.viewOrganization
+      ? {}
+      : {
+          NOT: [
+            { targetType: 'organization' },
+            {
+              targetType: 'customer',
+              customer: { is: { roles: { some: { role: 'wholesale_contact' } } } },
+            },
+          ],
+        };
+
+    const whereBase: Prisma.FollowUpWhereInput = {
       isHoldout: false, // 🔴 WORK-02: việc holdout KHÔNG hiện
       status: { in: [...OPEN_STATUSES] },
       ...(scope === 'mine' ? { assigneeId: auth.userId } : {}),
+      ...hideWholesale,
     };
 
     const followUps = await prisma.followUp.findMany({
@@ -171,6 +188,8 @@ workRouter.get(
         status: { in: ['da_mua_lai', 'dong'] },
         updatedAt: { gte: today },
         ...(scope === 'mine' ? { assigneeId: auth.userId } : {}),
+        // 🔴 BẤT BIẾN #6: KPI "xong hôm nay" loại việc đại lý + khách sỉ để khớp danh sách hiển thị.
+        ...hideWholesale,
       },
     });
 

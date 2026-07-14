@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './app/AuthContext';
+import { NotificationsProvider } from './app/NotificationsContext';
 import { Shell } from './app/Shell';
 import { LoginScreen } from './screens/LoginScreen';
 import { WorkTodayScreen } from './screens/WorkTodayScreen';
@@ -16,6 +17,7 @@ import { SystemConfigScreen } from './screens/SystemConfigScreen';
 import { ExperimentsScreen } from './screens/ExperimentsScreen';
 import { ExportScreen } from './screens/ExportScreen';
 import { SecurityScreen } from './screens/SecurityScreen';
+import { NotificationsScreen } from './screens/NotificationsScreen';
 import type { Permissions } from './api/types';
 import type { ReactNode } from 'react';
 import { EmptyState } from './components/ui';
@@ -64,8 +66,9 @@ export function App() {
   }
 
   return (
-    <Shell>
-      <Routes>
+    <NotificationsProvider>
+      <Shell>
+        <Routes>
         <Route path="/dang-nhap" element={<Navigate to="/viec-hom-nay" replace />} />
         <Route path="/viec-hom-nay" element={<WorkTodayScreen />} />
         <Route path="/khach" element={<CustomerListScreen />} />
@@ -152,12 +155,22 @@ export function App() {
         />
         {/* Self-service 2FA + thiết bị tin cậy — mọi vai (bảo mật thật ở server). */}
         <Route path="/bao-mat" element={<SecurityScreen />} />
+        {/* Trung tâm thông báo hoạt động nhân viên — chỉ Chủ shop (server cũng 403). */}
+        <Route
+          path="/thong-bao"
+          element={
+            <Guard allow={(p) => p.role === 'chu_shop'}>
+              <NotificationsScreen />
+            </Guard>
+          }
+        />
         <Route path="/" element={<Navigate to="/viec-hom-nay" replace />} />
         <Route
           path="*"
           element={<EmptyState title="Không tìm thấy trang" hint="Đường dẫn không tồn tại." />}
         />
-      </Routes>
-    </Shell>
+        </Routes>
+      </Shell>
+    </NotificationsProvider>
   );
 }

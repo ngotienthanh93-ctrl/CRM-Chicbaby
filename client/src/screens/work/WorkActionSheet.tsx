@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   CheckCircle2,
   CalendarClock,
@@ -11,15 +11,32 @@ import {
   Pause,
   PackageX,
   MessageSquarePlus,
+  Image as ImageIcon,
+  X,
 } from 'lucide-react';
 import { api } from '../../api/client';
-import type { UserRef, WorkCard } from '../../api/types';
+import type { FollowUpEvidence, UserRef, WorkCard } from '../../api/types';
 import { useAuth } from '../../app/AuthContext';
 import { BottomSheet } from '../../components/Modal';
+import { EvidenceGallery } from '../../components/EvidenceGallery';
 import { useToast } from '../../components/Toast';
 import { closeReasonVi, roleVi } from '../../lib/labels';
+import { compressImage } from '../../lib/image';
 
-type View = 'menu' | 'result' | 'snooze' | 'close' | 'reassign' | 'confirmBaby' | 'pause' | 'stockout';
+type View =
+  | 'menu'
+  | 'result'
+  | 'markPurchased'
+  | 'snooze'
+  | 'close'
+  | 'reassign'
+  | 'confirmBaby'
+  | 'pause'
+  | 'stockout'
+  | 'evidence';
+
+/** Số ảnh bằng chứng tối đa đính kèm 1 lần ghi kết quả. */
+const MAX_EVIDENCE_IMAGES = 3;
 
 export function WorkActionSheet({
   card,
@@ -37,12 +54,35 @@ export function WorkActionSheet({
   const { permissions } = useAuth();
   const [view, setView] = useState<View>('menu');
   const [busy, setBusy] = useState(false);
+  // Ảnh bằng chứng đang chọn (data URL đã nén) cho lần ghi kết quả hiện tại.
+  const [pendingImages, setPendingImages] = useState<string[]>([]);
+  const [compressing, setCompressing] = useState(false);
+  // Danh sách ảnh bằng chứng đã lưu (để xem lại + hiện số lượng ở menu).
+  const [evidence, setEvidence] = useState<FollowUpEvidence[] | null>(null);
 
   const isCustomer = card.targetType === 'customer';
   const isOrg = card.targetType === 'organization';
   const canConfirmBaby = isCustomer && card.confirmableBabies.length > 0 && !!permissions?.manageBaby;
   const canConsult = isCustomer && !!permissions?.viewConsultation && !!permissions?.manageBaby;
   const canManageOrg = isOrg && !!permissions?.manageOrganization && !!card.organizationId;
+  const canProcess = !!permissions?.processWork;
+  const isOwner = permissions?.role === 'chu_shop';
+  // Có bằng chứng để ghi "ĐÃ MUA"/"SẼ MUA" khi: đang chọn ảnh mới HOẶC việc đã có ảnh lưu trước đó.
+  // (Server đếm count > 0 từ mọi nguồn; UI không khóa oan việc đã đính ảnh từ phiên khác.)
+  const hasEvidence = pendingImages.length > 0 || (evidence?.length ?? 0) > 0;
+
+  const reloadEvidence = useCallback(
+    () =>
+      api
+        .get<{ items: FollowUpEvidence[] }>(`/api/followups/${card.id}/attachments`)
+        .then((r) => setEvidence(r.items))
+        .catch(() => setEvidence([])),
+    [card.id],
+  );
+  // Tải trước danh sách ảnh để hiện số lượng ở menu (chỉ vai xử lý việc; router gate processWork).
+  useEffect(() => {
+    if (canProcess) void reloadEvidence();
+  }, [canProcess, reloadEvidence]);
 
   const run = async (fn: () => Promise<unknown>, okMsg: string) => {
     setBusy(true);
@@ -52,6 +92,88 @@ export function WorkActionSheet({
       onDone();
     } catch (err) {
       toast('error', err instanceof Error ? err.message : 'Không thực hiện được, thử lại.');
+      setBusy(false);
+    }
+  };
+
+  // Chọn ảnh: nén phía client rồi thêm vào danh sách chờ (tối đa MAX_EVIDENCE_IMAGES).
+  const onPickImages = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const room = MAX_EVIDENCE_IMAGES - pendingImages.length;
+    const picked = Array.from(files).slice(0, Math.max(0, room));
+    e.target.value = ''; // cho phép chọn lại cùng tệp
+    if (picked.length === 0) return;
+    setCompressing(true);
+    try {
+      const dataUrls = await Promise.all(picked.map((f) => compressImage(f)));
+      setPendingImages((prev) => [...prev, ...dataUrls].slice(0, MAX_EVIDENCE_IMAGES));
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Không xử lý được ảnh.');
+    } finally {
+      setCompressing(false);
+    }
+  };
+
+  // Upload lần lượt ảnh bằng chứng đang chọn (dùng chung cho ghi kết quả & đánh dấu đã mua).
+  const uploadPendingImages = async () => {
+    for (const image of pendingImages) {
+      await api.post(`/api/followups/${card.id}/attachments`, { image });
+    }
+  };
+
+  // Ghi kết quả: upload ảnh bằng chứng TRƯỚC; nếu upload lỗi thì KHÔNG gọi result.
+  const submitResult = async (outcome: string, okMsg: string) => {
+    setBusy(true);
+    try {
+      await uploadPendingImages();
+      await api.post(`/api/followups/${card.id}/result`, { outcome });
+      toast('success', okMsg);
+      onDone();
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Không thực hiện được, thử lại.');
+      setBusy(false);
+    }
+  };
+
+  // Đánh dấu đã mua lại: cũng bắt buộc qua bước ảnh; upload TRƯỚC, lỗi upload thì KHÔNG mark-purchased.
+  const submitMarkPurchased = async () => {
+    setBusy(true);
+    try {
+      await uploadPendingImages();
+      await api.post(`/api/followups/${card.id}/mark-purchased`);
+      toast('success', 'Đã đánh dấu mua lại.');
+      onDone();
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Không thực hiện được, thử lại.');
+      setBusy(false);
+    }
+  };
+
+  // Đóng việc: bắt buộc ảnh bằng chứng cho MỌI lý do; upload TRƯỚC, lỗi upload thì KHÔNG đóng.
+  const submitClose = async (reason: string) => {
+    setBusy(true);
+    try {
+      await uploadPendingImages();
+      await api.post(`/api/followups/${card.id}/close`, { closeReason: reason });
+      toast('success', 'Đã đóng việc.');
+      onDone();
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Không thực hiện được, thử lại.');
+      setBusy(false);
+    }
+  };
+
+  // Xóa ảnh bằng chứng (chỉ chu_shop — server enforce; UI cũng ẩn nút với vai khác).
+  const deleteEvidence = async (attId: string) => {
+    setBusy(true);
+    try {
+      await api.del(`/api/followups/${card.id}/attachments/${attId}`);
+      await reloadEvidence();
+      toast('success', 'Đã xóa ảnh bằng chứng.');
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Không xóa được ảnh, thử lại.');
+    } finally {
       setBusy(false);
     }
   };
@@ -75,9 +197,12 @@ export function WorkActionSheet({
           <SheetBtn icon={<CheckCircle2 size={18} />} onClick={() => setView('result')}>
             Ghi kết quả cuộc gọi
           </SheetBtn>
-          <SheetBtn icon={<ShoppingCart size={18} />} onClick={() =>
-            run(() => api.post(`/api/followups/${card.id}/mark-purchased`), 'Đã đánh dấu mua lại.')
-          } disabled={busy}>
+          {canProcess && (
+            <SheetBtn icon={<ImageIcon size={18} />} onClick={() => setView('evidence')}>
+              Ảnh bằng chứng ({evidence?.length ?? 0})
+            </SheetBtn>
+          )}
+          <SheetBtn icon={<ShoppingCart size={18} />} onClick={() => setView('markPurchased')} disabled={busy}>
             Đánh dấu đã mua lại
           </SheetBtn>
           {/* §11.1: Xác nhận bé (suggested -> confirmed) khi việc target=customer có danh sách bé. */}
@@ -149,43 +274,82 @@ export function WorkActionSheet({
       {view === 'result' && (
         <div className="stack-2">
           <p className="small muted">Tách rõ khách đã mua thật với khách chỉ mới có ý định.</p>
+
+          {/* Khu đính kèm ảnh bằng chứng (ảnh chụp màn hình chat Zalo/FB). */}
+          <EvidencePicker
+            images={pendingImages}
+            compressing={compressing}
+            busy={busy}
+            onPick={onPickImages}
+            onRemove={(i) => setPendingImages((prev) => prev.filter((_, idx) => idx !== i))}
+          />
+          {!hasEvidence && (
+            <p className="small muted">Bắt buộc đính kèm ảnh bằng chứng để ghi "ĐÃ MUA" / "SẼ MUA".</p>
+          )}
+
           <SheetBtn
             icon={<CheckCircle2 size={18} />}
             onClick={() =>
-              run(
-                () => api.post(`/api/followups/${card.id}/result`, { outcome: 'already_purchased' }),
-                'Đã ghi: khách báo ĐÃ MUA (chờ đối soát hóa đơn).',
-              )
+              submitResult('already_purchased', 'Đã ghi: khách báo ĐÃ MUA (chờ đối soát hóa đơn).')
             }
-            disabled={busy}
+            disabled={busy || compressing || !hasEvidence}
           >
             Khách nói ĐÃ MUA rồi
           </SheetBtn>
           <SheetBtn
             icon={<CalendarClock size={18} />}
             onClick={() =>
-              run(
-                () => api.post(`/api/followups/${card.id}/result`, { outcome: 'intends_to_purchase' }),
-                'Đã ghi: khách SẼ MUA — hẹn kiểm tra lại.',
-              )
+              submitResult('intends_to_purchase', 'Đã ghi: khách SẼ MUA — hẹn kiểm tra lại.')
             }
-            disabled={busy}
+            disabled={busy || compressing || !hasEvidence}
           >
             Khách nói SẼ MUA (chưa mua)
           </SheetBtn>
           <SheetBtn
             icon={<PhoneOff size={18} />}
-            onClick={() =>
-              run(
-                () => api.post(`/api/followups/${card.id}/result`, { outcome: 'no_answer' }),
-                'Đã ghi: không nghe máy (việc vẫn mở).',
-              )
-            }
-            disabled={busy}
+            onClick={() => submitResult('no_answer', 'Đã ghi: không nghe máy (việc vẫn mở).')}
+            disabled={busy || compressing}
           >
             Không nghe máy
           </SheetBtn>
         </div>
+      )}
+
+      {view === 'markPurchased' && (
+        <div className="stack-2">
+          <p className="small muted">
+            Đánh dấu đã mua lại sẽ đối soát với hóa đơn KiotViet. Bắt buộc đính kèm ảnh bằng chứng liên hệ.
+          </p>
+
+          {/* Dùng chung cơ chế chọn/nén/preview ảnh của bước ghi kết quả. */}
+          <EvidencePicker
+            images={pendingImages}
+            compressing={compressing}
+            busy={busy}
+            onPick={onPickImages}
+            onRemove={(i) => setPendingImages((prev) => prev.filter((_, idx) => idx !== i))}
+          />
+          {!hasEvidence && (
+            <p className="small muted">Bắt buộc đính kèm ảnh bằng chứng để đánh dấu đã mua lại.</p>
+          )}
+
+          <SheetBtn
+            icon={<ShoppingCart size={18} />}
+            onClick={submitMarkPurchased}
+            disabled={busy || compressing || !hasEvidence}
+          >
+            Xác nhận đã mua lại
+          </SheetBtn>
+        </div>
+      )}
+
+      {view === 'evidence' && (
+        <EvidenceGallery
+          items={evidence}
+          canDelete={isOwner}
+          busy={busy}
+          onDelete={deleteEvidence}
+        />
       )}
 
       {view === 'snooze' && (
@@ -208,7 +372,17 @@ export function WorkActionSheet({
         </div>
       )}
 
-      {view === 'close' && <CloseView cardId={card.id} busy={busy} run={run} />}
+      {view === 'close' && (
+        <CloseView
+          images={pendingImages}
+          compressing={compressing}
+          busy={busy}
+          onPick={onPickImages}
+          onRemove={(i) => setPendingImages((prev) => prev.filter((_, idx) => idx !== i))}
+          hasEvidence={hasEvidence}
+          onSubmit={submitClose}
+        />
+      )}
 
       {view === 'reassign' && <ReassignView cardId={card.id} busy={busy} run={run} />}
     </BottomSheet>
@@ -219,6 +393,8 @@ function subTitle(v: View): string {
   switch (v) {
     case 'result':
       return 'Ghi kết quả cuộc gọi';
+    case 'markPurchased':
+      return 'Đánh dấu đã mua lại';
     case 'snooze':
       return 'Dời nhắc';
     case 'close':
@@ -231,9 +407,80 @@ function subTitle(v: View): string {
       return 'Tạm dừng cảnh báo';
     case 'stockout':
       return 'Báo shop hết hàng';
+    case 'evidence':
+      return 'Ảnh bằng chứng';
     default:
       return 'Xử lý';
   }
+}
+
+/** Khu chọn + xem trước ảnh bằng chứng đang chờ gửi. */
+function EvidencePicker({
+  images,
+  compressing,
+  busy,
+  onPick,
+  onRemove,
+}: {
+  images: string[];
+  compressing: boolean;
+  busy: boolean;
+  onPick: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onRemove: (index: number) => void;
+}) {
+  const full = images.length >= MAX_EVIDENCE_IMAGES;
+  const disabled = full || busy || compressing;
+  return (
+    <div className="stack-2">
+      {images.length > 0 && (
+        <div className="row-wrap" style={{ gap: 8 }}>
+          {images.map((src, i) => (
+            <div key={i} style={{ position: 'relative' }}>
+              <img
+                src={src}
+                alt={`Ảnh bằng chứng ${i + 1}`}
+                style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, display: 'block' }}
+              />
+              <button
+                type="button"
+                className="btn btn-danger btn-icon btn-sm"
+                aria-label="Gỡ ảnh"
+                onClick={() => onRemove(i)}
+                disabled={busy}
+                style={{ position: 'absolute', top: -8, right: -8, minHeight: 'auto', padding: 4 }}
+              >
+                <X size={14} aria-hidden />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <label
+        className="btn btn-outline btn-block"
+        style={{
+          minHeight: 48,
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? 0.55 : 1,
+        }}
+      >
+        <ImageIcon size={18} aria-hidden />
+        {compressing
+          ? 'Đang xử lý ảnh…'
+          : full
+            ? `Tối đa ${MAX_EVIDENCE_IMAGES} ảnh`
+            : 'Đính kèm ảnh bằng chứng'}
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          multiple
+          onChange={onPick}
+          disabled={disabled}
+          style={{ display: 'none' }}
+        />
+      </label>
+    </div>
+  );
 }
 
 function SheetBtn({
@@ -263,18 +510,26 @@ function SheetBtn({
 }
 
 function CloseView({
-  cardId,
+  images,
+  compressing,
   busy,
-  run,
+  onPick,
+  onRemove,
+  hasEvidence,
+  onSubmit,
 }: {
-  cardId: string;
+  images: string[];
+  compressing: boolean;
   busy: boolean;
-  run: (fn: () => Promise<unknown>, okMsg: string) => void;
+  onPick: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onRemove: (index: number) => void;
+  hasEvidence: boolean;
+  onSubmit: (reason: string) => void;
 }) {
   const [reason, setReason] = useState('');
   return (
     <div className="stack-2">
-      <p className="small muted">Đóng việc bắt buộc chọn lý do.</p>
+      <p className="small muted">Đóng việc bắt buộc chọn lý do và đính kèm ảnh bằng chứng.</p>
       <div className="field">
         <label className="label" htmlFor="close-reason">
           Lý do đóng
@@ -293,15 +548,25 @@ function CloseView({
           ))}
         </select>
       </div>
+
+      {/* Bắt buộc ảnh bằng chứng cho MỌI lý do đóng — kể cả "không phản hồi" vẫn phải có ảnh thực hiện cuộc gọi. */}
+      <EvidencePicker
+        images={images}
+        compressing={compressing}
+        busy={busy}
+        onPick={onPick}
+        onRemove={onRemove}
+      />
+      {!hasEvidence && (
+        <p className="small muted">
+          Bắt buộc đính kèm ảnh bằng chứng đã trao đổi/thực hiện cuộc gọi để đóng việc.
+        </p>
+      )}
+
       <button
         className="btn btn-danger btn-block"
-        disabled={!reason || busy}
-        onClick={() =>
-          run(
-            () => api.post(`/api/followups/${cardId}/close`, { closeReason: reason }),
-            'Đã đóng việc.',
-          )
-        }
+        disabled={!reason || busy || compressing || !hasEvidence}
+        onClick={() => onSubmit(reason)}
       >
         <XCircle size={18} aria-hidden />
         Xác nhận đóng

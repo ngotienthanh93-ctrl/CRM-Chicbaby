@@ -15,11 +15,17 @@ import type {
   UpliftResult,
 } from '../api/types';
 import { useApi } from '../hooks/useApi';
+import { useAuth } from '../app/AuthContext';
 import { Badge, EmptyState, ErrorState, SkeletonCards } from '../components/ui';
 import { declineReasonVi } from '../lib/labels';
 import type { Tone } from '../lib/labels';
 
 export function ReportsScreen() {
+  // 🔴 Mục "Lý do đại lý" là dữ liệu đại lý ⇒ chỉ hiện cho vai xem được đại lý (server cũng gate 403).
+  // 🔴 Mục "Tác động thí nghiệm" (uplift) CHỈ chủ shop (server cũng gate 403).
+  const { permissions } = useAuth();
+  const canViewAgency = !!permissions?.viewOrganization;
+  const canViewUplift = permissions?.role === 'chu_shop';
   return (
     <div>
       <div className="page-head">
@@ -32,9 +38,9 @@ export function ReportsScreen() {
       </div>
 
       <div className="stack-4">
-        <UpliftSection />
+        {canViewUplift && <UpliftSection />}
         <RepurchaseSection />
-        <AgencyReasonsSection />
+        {canViewAgency && <AgencyReasonsSection />}
         <DataQualitySection />
         <MetricDictionary />
       </div>

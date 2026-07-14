@@ -8,6 +8,10 @@ import { useAuth } from '../app/AuthContext';
 import { Badge, EmptyState, ErrorState, KvBadge, SkeletonTable } from '../components/ui';
 
 export function CustomerListScreen() {
+  const { permissions } = useAuth();
+  // 🔴 BẤT BIẾN #6: server đã ẩn khách sỉ với vai thiếu viewOrganization; ẩn luôn option lọc "sỉ"
+  // để không chọn ra danh sách rỗng khó hiểu.
+  const canSeeWholesale = permissions?.viewOrganization ?? false;
   const [search, setSearch] = useState('');
   const [role, setRole] = useState('');
   const [hasBaby, setHasBaby] = useState('');
@@ -56,7 +60,7 @@ export function CustomerListScreen() {
         <select className="select" style={{ width: 'auto' }} value={role} onChange={(e) => setRole(e.target.value)} aria-label="Lọc theo vai">
           <option value="">Tất cả vai</option>
           <option value="retail_customer">Khách lẻ</option>
-          <option value="wholesale_contact">Liên hệ sỉ</option>
+          {canSeeWholesale && <option value="wholesale_contact">Liên hệ sỉ</option>}
         </select>
         <select className="select" style={{ width: 'auto' }} value={hasBaby} onChange={(e) => setHasBaby(e.target.value)} aria-label="Lọc theo bé">
           <option value="">Có bé / chưa</option>

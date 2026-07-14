@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../../lib/prisma';
 import { asyncHandler, badRequest, notFound } from '../../lib/http';
 import { requireAuth, requirePermission } from '../../middleware/auth';
-import { writeAudit } from '../../security/audit';
+import { writeAudit, writeAuditBestEffort } from '../../security/audit';
 import { maskPhone } from '../../security/masking';
 import { formatVnDate } from '../../lib/datetime';
 import { requiresDeclineReason } from '../../engines/replenishment';
@@ -155,6 +155,14 @@ organizationsRouter.post(
         pausedReason: parsed.data.reason ?? null,
       },
     });
+    await writeAuditBestEffort({
+      userId: req.auth!.userId,
+      action: 'organization.pause',
+      objectType: 'organization',
+      objectId: o.id,
+      newValue: { pausedUntil: parsed.data.pausedUntil ?? null, reason: parsed.data.reason ?? null },
+      ip: req.ip,
+    });
     res.json({ ok: true, note: 'Tạm dừng cảnh báo NHẬP (công nợ/khiếu nại vẫn theo dõi).' });
   }),
 );
@@ -183,6 +191,18 @@ organizationsRouter.post(
         toDate: new Date(parsed.data.toDate),
         reason: parsed.data.reason,
       },
+    });
+    await writeAuditBestEffort({
+      userId: req.auth!.userId,
+      action: 'organization.stockout',
+      objectType: 'organization',
+      objectId: o.id,
+      newValue: {
+        fromDate: parsed.data.fromDate,
+        toDate: parsed.data.toDate,
+        reason: parsed.data.reason,
+      },
+      ip: req.ip,
     });
     res.json({ ok: true });
   }),

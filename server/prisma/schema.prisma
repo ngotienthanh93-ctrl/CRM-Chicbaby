@@ -299,6 +299,8 @@ model User {
   roleId       String
   status       UserStatus @default(active)
   lastLoginAt  DateTime?
+  // 🔴 Mốc "đã xem" trung tâm thông báo hoạt động nhân viên — đếm số hoạt động chưa đọc (chỉ Chủ shop dùng).
+  activitySeenAt DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   createdBy    String?
@@ -783,10 +785,31 @@ model FollowUp {
   stateHistory    FollowUpStateHistory[]
   conversions     FollowUpConversion[]
   reminderSources ReminderSource[]
+  attachments     FollowUpAttachment[]
 
   @@index([assigneeId, dueDate, status])
   @@index([customerId, dueDate])
   @@map("follow_ups")
+}
+
+// 🔴 Ảnh bằng chứng liên hệ (ảnh chụp màn hình chat Zalo/FB) đính khi ghi kết quả cuộc gọi.
+// Chủ shop dùng để kiểm tra nhân viên có thực sự liên hệ khách/đại lý hay không.
+// Bytes lưu thẳng trong DB (không dùng filesystem/upload). Soft-delete: chỉ chu_shop xóa được.
+model FollowUpAttachment {
+  id         String    @id @default(cuid())
+  followUpId String
+  uploadedBy String
+  mimeType   String
+  sizeBytes  Int
+  caption    String?
+  data       Bytes
+  createdAt  DateTime  @default(now())
+  deletedAt  DateTime?
+
+  followUp FollowUp @relation(fields: [followUpId], references: [id])
+
+  @@index([followUpId])
+  @@map("follow_up_attachments")
 }
 
 model FollowUpStateHistory {
@@ -1040,6 +1063,8 @@ model AuditLog {
 
   @@index([objectType, objectId])
   @@index([userId, createdAt])
+  // 🔴 Feed thông báo hoạt động lọc theo action + sắp theo createdAt (poll định kỳ) — index tránh seq scan khi log phình.
+  @@index([action, createdAt])
   @@map("audit_logs")
 }
 

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, Baby as BabyIcon, MoreHorizontal, X } from 'lucide-react';
+import { LogOut, Baby as BabyIcon, MoreHorizontal, X, Bell } from 'lucide-react';
 import { useAuth } from './AuthContext';
+import { useNotifications } from './NotificationsContext';
 import { visibleNav, NAV_GROUP_LABELS, type NavGroup } from './nav';
 import { roleVi } from '../lib/labels';
 import { DemoBanner } from '../components/ui';
@@ -12,10 +13,14 @@ const BOTTOM_NAV_PRIMARY = 4; // số tab hiển thị trực tiếp; phần cò
 
 export function Shell({ children }: { children: ReactNode }) {
   const { user, permissions, logout } = useAuth();
+  const { unreadCount } = useNotifications();
   const navigate = useNavigate();
   const location = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
   if (!user || !permissions) return null;
+
+  // 🔔 Chuông thông báo hoạt động nhân viên — CHỈ Chủ shop (server cũng 403 với vai khác).
+  const isOwner = permissions.role === 'chu_shop';
 
   const items = visibleNav(permissions);
   const initial = user.fullName.trim().charAt(0).toUpperCase() || 'U';
@@ -45,6 +50,23 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
         <div className="spacer" />
         <div className="topbar-user">
+          {isOwner && (
+            <button
+              type="button"
+              className="btn btn-outline btn-icon btn-sm notif-bell"
+              onClick={() => navigate('/thong-bao')}
+              aria-label={
+                unreadCount > 0 ? `Thông báo, ${unreadCount} chưa đọc` : 'Thông báo'
+              }
+            >
+              <Bell size={16} aria-hidden />
+              {unreadCount > 0 && (
+                <span className="notif-bell-badge" aria-hidden>
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
+            </button>
+          )}
           <div className="topbar-user-info">
             <span className="topbar-user-name">{user.fullName}</span>
             <span className="topbar-user-role">{roleVi[user.role] ?? user.role}</span>
