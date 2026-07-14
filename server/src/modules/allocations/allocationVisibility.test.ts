@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 
-// Mock prisma để import router (kéo theo audit/session) mà KHÔNG chạm DB. Predicate dưới test là THUẦN
-// (không gọi prisma) — chỉ cần import không nổ. Mirror style customerVisibility.test.ts.
+// Mock prisma để import module security (kéo theo notFound/http) mà KHÔNG chạm DB. Predicate dưới test
+// là THUẦN (không gọi prisma) — chỉ cần import không nổ. Mirror style customerVisibility.test.ts.
 vi.mock('../../lib/prisma', () => ({ prisma: {} }));
 
-import { allocationBabyWholesaleWhere } from './allocations.router';
+import { allocationBabyWholesaleWhere } from '../../security/customerVisibility';
 import { permissionsFor } from '../../security/permissions';
 
 const withView = { ...permissionsFor('cskh'), viewOrganization: true };

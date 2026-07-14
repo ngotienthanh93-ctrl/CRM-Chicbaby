@@ -2,7 +2,7 @@
 // 🔴 Nguyên tắc #7: KHÔNG tự động gộp; CHỈ Chủ shop duyệt + nhập lại mật khẩu. KHÔNG gợi ý theo tên.
 import { Router } from 'express';
 import { z } from 'zod';
-import { Prisma } from '@prisma/client';
+import { Prisma, CustomerRoleType } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { asyncHandler, badRequest, conflict, notFound } from '../../lib/http';
 import { requireAuth, requirePermission } from '../../middleware/auth';
@@ -210,9 +210,13 @@ mergeRouter.post(
       await tx.followUp.updateMany({ where: { customerId: mergedId }, data: { customerId: masterId } });
       await tx.reminderSource.updateMany({ where: { customerId: mergedId }, data: { customerId: masterId } });
 
+      // 🔴 Snapshot vai của khách BỊ GỘP TRƯỚC khi moveDedup chuyển vai sang master (lúc mergedId còn nguyên
+      //    vai) — để unmerge sau này khôi phục ĐÚNG vai (đặc biệt wholesale_contact). Lưu vào mergeHistory bên dưới.
+      const mergedRoleRows = await tx.customerRole.findMany({ where: { customerId: mergedId } });
+      const mergedRolesSnapshot: string[] = mergedRoleRows.map((r) => r.role);
       // Vai (unique customerId+role): dedupe khi chuyển.
       await moveDedup(
-        tx.customerRole.findMany({ where: { customerId: mergedId } }),
+        Promise.resolve(mergedRoleRows),
         (row) => tx.customerRole.findFirst({ where: { customerId: masterId, role: row.role } }),
         (id) => tx.customerRole.update({ where: { id }, data: { customerId: masterId } }),
         (id) => tx.customerRole.delete({ where: { id } }),
@@ -280,7 +284,15 @@ mergeRouter.post(
       // Khách bị gộp ĐÃ soft-delete ở guard nguyên tử phía trên (MERGE-07 giữ nguồn, KHÔNG xóa cứng).
       // mergeHistory CHỈ ghi khi guard qua ⇒ đảm bảo không sinh lịch sử gộp trùng.
       await tx.mergeHistory.create({
-        data: { masterId, mergedId, mergedBy: req.auth!.userId, mergedAt: now, revertible: true },
+        data: {
+          masterId,
+          mergedId,
+          mergedBy: req.auth!.userId,
+          mergedAt: now,
+          revertible: true,
+          // Snapshot vai khách bị gộp (mảng role string) ⇒ unmerge khôi phục đúng vai. Mảng rỗng nếu không có vai.
+          mergedRoles: mergedRolesSnapshot,
+        },
       });
     });
 
@@ -349,46 +361,60 @@ mergeRouter.post(
       );
     }
 
-    // 🔴 BẤT BIẾN #6 (ISSUE-1): nếu master ĐANG mang vai wholesale_contact ⇒ lần gộp này LIÊN QUAN KHÁCH SỈ
-    // (merge đã chuyển vai mergedId→masterId; khách sỉ ở phía nào cũng để lại vai này trên master).
-    // Bản gọn GĐ2 chỉ bỏ soft-delete mergedId, KHÔNG khôi phục vai (MergeHistory chưa snapshot vai) ⇒ khách
-    // sỉ hồi sinh có thể MẤT vai wholesale_contact và lộ với user thiếu viewOrganization. Mitigation an toàn:
-    // KHÔNG tự tách — định tuyến sang ticket xử lý tay (giống nhánh "đã phát sinh dữ liệu mới") để khôi phục ĐÚNG vai.
-    // TODO(đợt sau): giải pháp CHUẨN là snapshot vai (roles) trong MergeHistory (đổi schema) rồi tự tách an toàn.
-    const masterRoles = await prisma.customerRole.findMany({
-      where: { customerId: history.masterId },
-      select: { role: true },
-    });
-    if (masterRoles.some((r) => r.role === 'wholesale_contact')) {
-      const ticket = await prisma.mergeUnmergeTicket.create({
-        data: {
-          mergeHistoryId: history.id,
-          masterId: history.masterId,
-          mergedId: history.mergedId,
-          reason:
-            parsed.data.reason ??
-            'Liên quan KHÁCH SỈ — cần xử lý tay để khôi phục đúng vai wholesale_contact khi tách (bản gọn GĐ2 chưa snapshot vai).',
-          requestedBy: req.auth!.userId,
-        },
+    // 🔴 BẤT BIẾN #6 — khôi phục vai khi tách (ISSUE-1, fix CHUẨN):
+    //  - Gộp MỚI đã snapshot vai của khách bị gộp (mergedRoles != null, kể cả mảng rỗng) ⇒ tự tách AN TOÀN cho
+    //    MỌI loại khách (gồm khách sỉ): khôi phục vai từ snapshot bên dưới ⇒ KHÔNG còn ép ticket oan.
+    //  - Gộp CŨ trước migration (mergedRoles == null) ⇒ không thể khôi phục vai an toàn: GIỮ mitigation — nếu
+    //    master ĐANG mang wholesale_contact (lần gộp liên quan khách sỉ) thì định tuyến ticket xử lý tay để
+    //    tránh khách sỉ hồi sinh MẤT vai và lộ với user thiếu viewOrganization. Vai bán lẻ cũ vẫn tự tách như trước.
+    const roleSnapshot = history.mergedRoles; // Prisma.JsonValue | null
+    const hasRoleSnapshot = roleSnapshot !== null; // null ⇒ lịch sử gộp cũ (trước migration)
+    if (!hasRoleSnapshot) {
+      const masterRoles = await prisma.customerRole.findMany({
+        where: { customerId: history.masterId },
+        select: { role: true },
       });
-      await writeAudit({
-        userId: req.auth!.userId,
-        action: 'customer.unmerge_ticket',
-        objectType: 'customer',
-        objectId: history.masterId,
-        newValue: { ticketId: ticket.id, mergedId: history.mergedId, reason: 'wholesale' },
-      });
-      throw conflict(
-        `Lần gộp liên quan khách sỉ — không thể tự tách để tránh mất vai. Đã tạo ticket xử lý tay #${ticket.id}.`,
-      );
+      if (masterRoles.some((r) => r.role === 'wholesale_contact')) {
+        const ticket = await prisma.mergeUnmergeTicket.create({
+          data: {
+            mergeHistoryId: history.id,
+            masterId: history.masterId,
+            mergedId: history.mergedId,
+            reason:
+              parsed.data.reason ??
+              'Lần gộp CŨ (chưa snapshot vai) liên quan KHÁCH SỈ — cần xử lý tay để khôi phục đúng vai wholesale_contact khi tách.',
+            requestedBy: req.auth!.userId,
+          },
+        });
+        await writeAudit({
+          userId: req.auth!.userId,
+          action: 'customer.unmerge_ticket',
+          objectType: 'customer',
+          objectId: history.masterId,
+          newValue: { ticketId: ticket.id, mergedId: history.mergedId, reason: 'wholesale' },
+        });
+        throw conflict(
+          `Lần gộp liên quan khách sỉ (lịch sử cũ chưa lưu vai) — không thể tự tách để tránh mất vai. Đã tạo ticket xử lý tay #${ticket.id}.`,
+        );
+      }
     }
 
-    // Chưa phát sinh dữ liệu mới => cho tách bản gọn: khôi phục khách bị gộp (bỏ soft-delete) + đánh dấu lịch sử.
+    // Chưa phát sinh dữ liệu mới => cho tách: khôi phục khách bị gộp (bỏ soft-delete) + khôi phục vai từ snapshot.
+    const rolesToRestore = parseSnapshotRoles(roleSnapshot);
     await prisma.$transaction(async (tx) => {
       await tx.customerCrm.update({
         where: { id: history.mergedId },
         data: { deletedAt: null, retentionStatus: 'active' },
       });
+      // 🔴 Khôi phục vai khách bị gộp từ snapshot (gồm wholesale_contact). skipDuplicates phòng trùng do
+      //    unique [customerId, role]. KHÔNG xóa vai khỏi master (bảo thủ: master giữ union, tránh gỡ nhầm vai
+      //    vốn có của master). Snapshot null/rỗng ⇒ không có vai để khôi phục (fallback đã chặn khách sỉ ở trên).
+      if (rolesToRestore.length > 0) {
+        await tx.customerRole.createMany({
+          data: rolesToRestore.map((role) => ({ customerId: history.mergedId, role })),
+          skipDuplicates: true,
+        });
+      }
       await tx.mergeHistory.update({ where: { id: history.id }, data: { revertible: false } });
     });
     await writeAudit({
@@ -396,18 +422,33 @@ mergeRouter.post(
       action: 'customer.unmerge',
       objectType: 'customer',
       objectId: history.masterId,
-      newValue: { mergedId: history.mergedId },
+      newValue: { mergedId: history.mergedId, restoredRoles: rolesToRestore },
       reason: 'Tách khách (chưa phát sinh dữ liệu mới sau gộp)',
     });
     res.json({
       ok: true,
-      note: 'Đã khôi phục khách bị gộp. Lưu ý (bản gọn GĐ2): FK đã chuyển sang master KHÔNG tự động trả lại — chỉ khôi phục hồ sơ khách; trường hợp phức tạp dùng ticket.',
+      note: 'Đã khôi phục khách bị gộp cùng vai (nếu có snapshot). Lưu ý: FK khác (bé/tư vấn/consent/nhắc) đã chuyển sang master KHÔNG tự động trả lại — trường hợp phức tạp dùng ticket.',
+      restoredRoles: rolesToRestore,
       mergedAt: formatVnDateTime(history.mergedAt),
     });
   }),
 );
 
 // ---------- helpers ----------
+
+// Tập vai hợp lệ lấy TỪ enum Prisma (không hard-code, tự đồng bộ nếu enum đổi).
+const VALID_CUSTOMER_ROLES = new Set<string>(Object.values(CustomerRoleType));
+
+/**
+ * Đọc snapshot vai (MergeHistory.mergedRoles) an toàn từ Json: chỉ giữ phần tử là CHUỖI khớp enum
+ * CustomerRoleType (lọc dữ liệu rác/JSON lạ). Không phải mảng (null/object/…) ⇒ trả [].
+ */
+export function parseSnapshotRoles(value: Prisma.JsonValue | null): CustomerRoleType[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (v): v is CustomerRoleType => typeof v === 'string' && VALID_CUSTOMER_ROLES.has(v),
+  );
+}
 
 /** Chuyển các dòng con sang master, bỏ dòng trùng (theo unique) để không vi phạm ràng buộc. */
 async function moveDedup<T extends { id: string }>(

@@ -5,7 +5,11 @@ import { asyncHandler, badRequest, conflict, notFound } from '../../lib/http';
 import { requireAuth, requirePermission } from '../../middleware/auth';
 import { writeAudit } from '../../security/audit';
 import { assertBabyBelongsToInvoiceLine, resolveCustomerIdFromInvoiceLine } from '../../security/ownership';
-import { assertCustomerVisible } from '../../security/customerVisibility';
+import {
+  assertCustomerVisible,
+  allocationBabyWholesaleWhere,
+  BABY_WHOLESALE_OR,
+} from '../../security/customerVisibility';
 import type { Permissions } from '../../security/permissions';
 import type { Prisma } from '@prisma/client';
 import { formatVnDate } from '../../lib/datetime';
@@ -34,87 +38,6 @@ const STATUS_MAP: Record<string, string[]> = {
 
 const listQuery = z.object({ status: z.enum(['needs', 'auto', 'done']).default('needs') });
 
-// 🔴 BẤT BIẾN #6 (ISSUE-2): allocation coi là "của KHÁCH SỈ" nếu bé ĐÃ xác nhận (baby) HOẶC bé GỢI Ý
-// (suggestedBaby) thuộc khách có vai wholesale_contact — chặn kể cả khi KV identity của hóa đơn
-// thiếu/unlink/stale (không suy được khách qua đường KV). Dùng lại ở list + assert + bulk filter.
-const BABY_WHOLESALE_OR: Prisma.InvoiceItemBabyAllocationWhereInput[] = [
-  { baby: { is: { customer: { is: { roles: { some: { role: 'wholesale_contact' } } } } } } },
-  { suggestedBaby: { is: { customer: { is: { roles: { some: { role: 'wholesale_contact' } } } } } } },
-];
-
-/**
- * Predicate Prisma loại allocation có bé (xác nhận/gợi ý) thuộc KHÁCH SỈ khi thiếu viewOrganization.
- * viewOrganization=true ⇒ {} (không lọc — chu_shop vô hại). Áp vào where của findMany TRƯỚC take
- * để không cắt cụt danh sách trước khi lọc (ISSUE-3) và bịt kẽ KV identity thiếu/stale (ISSUE-2).
- */
-export function allocationBabyWholesaleWhere(
-  perms: Pick<Permissions, 'viewOrganization'>,
-): Prisma.InvoiceItemBabyAllocationWhereInput {
-  return perms.viewOrganization ? {} : { NOT: { OR: BABY_WHOLESALE_OR } };
-}
-
-type AllocationForList = Prisma.InvoiceItemBabyAllocationGetPayload<{
-  include: {
-    invoiceLine: { include: { invoice: true; product: true } };
-    suggestedBaby: true;
-    baby: true;
-  };
-}>;
-
-/**
- * 🔴 ISSUE-3: nạp allocation hiển-thị-được, tránh trả rỗng/cụt oan.
- * Phần lọc "sở hữu bé" (khách sỉ) đã ở trong `baseWhere` (Prisma, TRƯỚC take). Phần lọc theo KV-identity
- * (khách sỉ có mã KV) KHÔNG biểu diễn được bằng Prisma relation (kv_* là mirror, không FK sang customer)
- * ⇒ vẫn phải lọc in-memory. Khi có KV cần ẩn, nạp theo TRANG (cursor) tới khi đủ `limit` dòng hiển-thị-được.
- * Trần MAX_SCAN chống quét vô hạn; chạm trần ⇒ trả phần đã gom (giới hạn hiếm: >MAX_SCAN dòng đầu đều khách sỉ).
- */
-async function fetchDisplayableAllocations(
-  baseWhere: Prisma.InvoiceItemBabyAllocationWhereInput,
-  hiddenKvCustomerIds: Set<string>,
-  limit: number,
-): Promise<AllocationForList[]> {
-  const include = {
-    invoiceLine: { include: { invoice: true, product: true } },
-    suggestedBaby: true,
-    baby: true,
-  } satisfies Prisma.InvoiceItemBabyAllocationInclude;
-  // Tiebreaker id ⇒ total-order ổn định cho cursor (createdAt có thể trùng).
-  const orderBy: Prisma.InvoiceItemBabyAllocationOrderByWithRelationInput[] = [
-    { createdAt: 'desc' },
-    { id: 'desc' },
-  ];
-
-  // Không phải lọc KV in-memory (thường gặp: có viewOrganization, hoặc không có khách sỉ mã KV) ⇒ nạp thẳng.
-  if (hiddenKvCustomerIds.size === 0) {
-    return prisma.invoiceItemBabyAllocation.findMany({ where: baseWhere, include, orderBy, take: limit });
-  }
-
-  const MAX_SCAN = limit * 10; // trần an toàn ~3000 dòng quét
-  const kept: AllocationForList[] = [];
-  let cursorId: string | undefined;
-  let scanned = 0;
-  while (kept.length < limit && scanned < MAX_SCAN) {
-    const page = await prisma.invoiceItemBabyAllocation.findMany({
-      where: baseWhere,
-      include,
-      orderBy,
-      take: limit,
-      ...(cursorId ? { skip: 1, cursor: { id: cursorId } } : {}),
-    });
-    if (page.length === 0) break;
-    scanned += page.length;
-    for (const a of page) {
-      const kv = a.invoiceLine.invoice.kvCustomerId ?? '';
-      if (hiddenKvCustomerIds.has(kv)) continue; // 🔴 BẤT BIẾN #6: bỏ dòng thuộc khách sỉ theo mã KV
-      kept.push(a);
-      if (kept.length >= limit) break;
-    }
-    cursorId = page[page.length - 1]!.id;
-    if (page.length < limit) break; // hết dữ liệu
-  }
-  return kept.slice(0, limit);
-}
-
 allocationsRouter.get(
   '/',
   asyncHandler(async (req, res) => {
@@ -142,13 +65,30 @@ allocationsRouter.get(
       });
     }
 
-    // 🔴 ISSUE-2 + ISSUE-3: đẩy phần lọc "sở hữu bé" (bé xác nhận/gợi ý thuộc khách sỉ) vào Prisma where
-    // TRƯỚC take — vừa bịt kẽ KV identity thiếu/stale, vừa không cắt cụt danh sách trước khi lọc.
-    const baseWhere: Prisma.InvoiceItemBabyAllocationWhereInput = {
-      assignmentStatus: { in: STATUS_MAP[status] as never[] },
-      ...allocationBabyWholesaleWhere(perms),
-    };
-    const allocations = await fetchDisplayableAllocations(baseWhere, hiddenKvCustomerIds, 300);
+    // 🔴 BẤT BIẾN #6 (ISSUE-2 + ISSUE-3): lọc TOÀN BỘ khách sỉ ở DB — không quét trần, không cụt danh sách.
+    // Gộp 3 tín hiệu bằng AND (tránh 2 predicate NOT đè nhau), tất cả áp TRƯỚC take:
+    //  1) assignmentStatus theo tab;
+    //  2) bé xác nhận/gợi ý thuộc khách sỉ  → allocationBabyWholesaleWhere (quan hệ Prisma);
+    //  3) hóa đơn mang mã KV của khách sỉ   → loại invoiceLine.invoice.kvCustomerId ∈ hiddenKv
+    //     (kv_* là mirror không FK sang customer nên phải liệt kê mã KV khách sỉ rồi loại theo scalar).
+    // viewOrganization ⇒ hiddenKv rỗng + allocationBabyWholesaleWhere = {} (no-op, chu_shop/đủ quyền vô hại).
+    const hiddenKvIds = [...hiddenKvCustomerIds];
+    const andConditions: Prisma.InvoiceItemBabyAllocationWhereInput[] = [
+      { assignmentStatus: { in: STATUS_MAP[status] as never[] } },
+      allocationBabyWholesaleWhere(perms),
+    ];
+    if (hiddenKvIds.length > 0) {
+      andConditions.push({
+        NOT: { invoiceLine: { is: { invoice: { is: { kvCustomerId: { in: hiddenKvIds } } } } } },
+      });
+    }
+    const allocations = await prisma.invoiceItemBabyAllocation.findMany({
+      where: { AND: andConditions },
+      include: { invoiceLine: { include: { invoice: true, product: true } }, suggestedBaby: true, baby: true },
+      // Tiebreaker id ⇒ thứ tự ổn định (createdAt có thể trùng).
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 300,
+    });
 
     // gom theo khách
     const groups = new Map<
@@ -157,8 +97,8 @@ allocationsRouter.get(
     >();
     for (const a of allocations) {
       const kvCustomerId = a.invoiceLine.invoice.kvCustomerId ?? '';
-      // 🔴 BẤT BIẾN #6 (phòng thủ chiều sâu): fetchDisplayableAllocations đã loại dòng khách sỉ theo mã KV;
-      // giữ guard này để không bao giờ lộ nhóm khách sỉ dưới nhãn "Khách chưa liên kết" nếu helper đổi.
+      // 🔴 BẤT BIẾN #6 (phòng thủ chiều sâu): where DB đã loại dòng khách sỉ theo mã KV; giữ guard này
+      // để không bao giờ lộ nhóm khách sỉ dưới nhãn "Khách chưa liên kết" nếu điều kiện where đổi.
       if (hiddenKvCustomerIds.has(kvCustomerId)) continue;
       const cust = kvToCustomer.get(kvCustomerId);
       const key = cust?.id ?? `kv:${kvCustomerId}`;

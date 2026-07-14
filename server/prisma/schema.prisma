@@ -474,6 +474,9 @@ model MergeHistory {
   mergedBy   String
   mergedAt   DateTime @default(now())
   revertible Boolean  @default(true)
+  // Snapshot vai (CustomerRole.role) của khách BỊ GỘP tại thời điểm merge, để unmerge khôi phục đúng vai.
+  // Nullable ⇒ lịch sử gộp CŨ (trước migration) = null ⇒ unmerge dùng mitigation cũ; gộp MỚI luôn có snapshot.
+  mergedRoles Json?
 
   @@index([masterId])
   @@map("merge_history")

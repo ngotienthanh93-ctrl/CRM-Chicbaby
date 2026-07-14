@@ -44,3 +44,23 @@ export async function assertCustomerVisible(
     throw notFound(notFoundMessage);
   }
 }
+
+// 🔴 BẤT BIẾN #6 (ISSUE-2): allocation coi là "của KHÁCH SỈ" nếu bé ĐÃ xác nhận (baby) HOẶC bé GỢI Ý
+// (suggestedBaby) thuộc khách có vai wholesale_contact — chặn kể cả khi KV identity của hóa đơn
+// thiếu/unlink/stale (không suy được khách qua đường KV). Dùng lại ở allocations (list + assert + bulk
+// filter) và reports/data-quality (đếm chất lượng phân bổ KHÔNG tính bé của khách sỉ).
+export const BABY_WHOLESALE_OR: Prisma.InvoiceItemBabyAllocationWhereInput[] = [
+  { baby: { is: { customer: { is: { roles: { some: { role: 'wholesale_contact' } } } } } } },
+  { suggestedBaby: { is: { customer: { is: { roles: { some: { role: 'wholesale_contact' } } } } } } },
+];
+
+/**
+ * Predicate Prisma loại allocation có bé (xác nhận/gợi ý) thuộc KHÁCH SỈ khi thiếu viewOrganization.
+ * viewOrganization=true ⇒ {} (không lọc — chu_shop vô hại). Áp vào where của findMany/count TRƯỚC take
+ * để không cắt cụt danh sách trước khi lọc (ISSUE-3) và bịt kẽ KV identity thiếu/stale (ISSUE-2).
+ */
+export function allocationBabyWholesaleWhere(
+  perms: Pick<Permissions, 'viewOrganization'>,
+): Prisma.InvoiceItemBabyAllocationWhereInput {
+  return perms.viewOrganization ? {} : { NOT: { OR: BABY_WHOLESALE_OR } };
+}

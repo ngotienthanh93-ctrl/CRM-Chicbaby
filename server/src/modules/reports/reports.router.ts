@@ -5,7 +5,11 @@ import { Router } from 'express';
 import { prisma } from '../../lib/prisma';
 import { asyncHandler, forbidden } from '../../lib/http';
 import { requireAuth, requirePermission } from '../../middleware/auth';
-import { visibleCustomerWhere, visibleCustomerRelationWhere } from '../../security/customerVisibility';
+import {
+  visibleCustomerWhere,
+  visibleCustomerRelationWhere,
+  allocationBabyWholesaleWhere,
+} from '../../security/customerVisibility';
 import { computeUplift, countDistinctRepurchaseCustomers } from '../../engines/experiment';
 import { diffDaysVn } from '../../lib/datetime';
 
@@ -20,8 +24,10 @@ reportsRouter.get(
   requirePermission('viewBaby'),
   asyncHandler(async (req, res) => {
     // 🔴 BẤT BIẾN #6: viewBaby nhưng thiếu viewOrganization ⇒ số liệu tổng hợp KHÔNG tính khách sỉ + bé của họ.
-    // (Các count phân bổ dưới KHÔNG lọc được rẻ vì allocation không có quan hệ CRM-customer trực tiếp —
-    //  suy khách phải đi qua KV invoice→identity từng dòng; giữ nguyên, xem ghi chú giới hạn ở đáp ứng.)
+    // Các count phân bổ dưới lọc khách sỉ qua allocationBabyWholesaleWhere (bé xác nhận/gợi ý thuộc khách sỉ),
+    // spread như các predicate visibleCustomer* khác trong file (predicate chỉ đóng góp key NOT, không đè
+    // assignmentStatus). GIỚI HẠN: allocation khách-sỉ CHỈ nhận qua KV identity (không có bé) vẫn KHÔNG lọc
+    // được — kv_* là mirror không FK sang customer; các count này là số đếm TỔNG, chấp nhận sai lệch phần này.
     const perms = req.permissions!;
     const [
       productsNoApproved,
@@ -35,13 +41,13 @@ reportsRouter.get(
       customersNoBaby,
     ] = await Promise.all([
       prisma.kvProduct.count({ where: { kvDeleted: false, crmMeta: { is: { approvedCycleDays: null } } } }),
-      prisma.invoiceItemBabyAllocation.count({ where: { assignmentStatus: 'suggested' } }),
+      prisma.invoiceItemBabyAllocation.count({ where: { assignmentStatus: 'suggested', ...allocationBabyWholesaleWhere(perms) } }),
       prisma.babyProfile.count({ where: { deletedAt: null, birthDate: null, ageMonthsAtRecording: null, customer: visibleCustomerRelationWhere(perms) } }),
       prisma.customerCrm.count({ where: { deletedAt: null, consents: { none: {} }, ...visibleCustomerWhere(perms) } }),
-      prisma.invoiceItemBabyAllocation.count({ where: { assignmentStatus: { in: ['confirmed', 'auto_assigned'] } } }),
-      prisma.invoiceItemBabyAllocation.count({ where: { assignmentStatus: 'suggested' } }),
-      prisma.invoiceItemBabyAllocation.count({ where: { assignmentStatus: 'customer_level' } }),
-      prisma.invoiceItemBabyAllocation.count(),
+      prisma.invoiceItemBabyAllocation.count({ where: { assignmentStatus: { in: ['confirmed', 'auto_assigned'] }, ...allocationBabyWholesaleWhere(perms) } }),
+      prisma.invoiceItemBabyAllocation.count({ where: { assignmentStatus: 'suggested', ...allocationBabyWholesaleWhere(perms) } }),
+      prisma.invoiceItemBabyAllocation.count({ where: { assignmentStatus: 'customer_level', ...allocationBabyWholesaleWhere(perms) } }),
+      prisma.invoiceItemBabyAllocation.count({ where: allocationBabyWholesaleWhere(perms) }),
       prisma.customerCrm.count({ where: { deletedAt: null, babies: { none: { deletedAt: null } }, ...visibleCustomerWhere(perms) } }),
     ]);
     const pct = (n: number) => (allocTotal > 0 ? Math.round((n / allocTotal) * 1000) / 10 : 0);
