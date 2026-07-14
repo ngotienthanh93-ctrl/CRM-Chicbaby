@@ -77,6 +77,9 @@ export interface WorkCard {
   targetName: string;
   phone: string | null;
   phoneOf: string | null;
+  // Kênh liên hệ MXH (CRM-owned) để hiển thị nút Zalo/Facebook trên card.
+  facebook: string | null;
+  zalo: string | null;
   content: string;
   dueDate: string;
   overdue: boolean;
@@ -332,6 +335,8 @@ export interface OrgSummary {
 export interface OrgDetail {
   id: string;
   orgName: string;
+  facebook: string | null;
+  zalo: string | null;
   status: string;
   province: string | null;
   district: string | null;

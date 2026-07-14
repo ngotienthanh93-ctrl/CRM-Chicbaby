@@ -7,6 +7,7 @@ import { writeAudit, writeAuditBestEffort } from '../../security/audit';
 import { maskPhone } from '../../security/masking';
 import { formatVnDate } from '../../lib/datetime';
 import { requiresDeclineReason } from '../../engines/replenishment';
+import { normalizeFacebook, normalizeZalo, socialLinksSchema } from '../customers/socialLinks';
 
 export const organizationsRouter = Router();
 organizationsRouter.use(requireAuth, requirePermission('viewOrganization'));
@@ -48,6 +49,9 @@ organizationsRouter.get(
     res.json({
       id: o.id,
       orgName: o.orgName,
+      // FB/Zalo là dữ liệu CRM-owned, hiển thị cho MỌI vai xem được hồ sơ đại lý (đã gate viewOrganization ở router).
+      facebook: o.facebook,
+      zalo: o.zalo,
       status: o.status,
       province: o.province,
       district: o.district,
@@ -81,6 +85,41 @@ organizationsRouter.get(
       reasonStatus: o.reasonStatus,
       badges: buildBadges(o),
     });
+  }),
+);
+
+// 🔴 Ghi FB/Zalo đại lý cần manageOrganization: vai thiếu quyền => 403 tại server, không chỉ ẩn ở UI.
+organizationsRouter.put(
+  '/:id/social-links',
+  requirePermission('manageOrganization'),
+  asyncHandler(async (req, res) => {
+    const parsed = socialLinksSchema.safeParse(req.body);
+    if (!parsed.success) throw badRequest('Dữ liệu kênh liên hệ không hợp lệ.');
+
+    const o = await prisma.organization.findFirst({
+      where: { id: String(req.params.id), deletedAt: null },
+    });
+    if (!o) throw notFound('Không tìm thấy đại lý.');
+
+    // Chỉ đụng field được gửi lên; chuẩn hóa + kiểm tra XSS/host ở SERVER (ném 400 nếu link sai).
+    const data: { facebook?: string | null; zalo?: string | null } = {};
+    if (parsed.data.facebook !== undefined) data.facebook = normalizeFacebook(parsed.data.facebook);
+    if (parsed.data.zalo !== undefined) data.zalo = normalizeZalo(parsed.data.zalo);
+    if (Object.keys(data).length === 0) throw badRequest('Không có kênh liên hệ nào để cập nhật.');
+
+    const updated = await prisma.organization.update({ where: { id: o.id }, data });
+
+    await writeAudit({
+      userId: req.auth!.userId,
+      action: 'organization.update_social_links',
+      objectType: 'organization',
+      objectId: o.id,
+      oldValue: { facebook: o.facebook, zalo: o.zalo },
+      newValue: { facebook: updated.facebook, zalo: updated.zalo },
+      ip: req.ip,
+    });
+
+    res.json({ ok: true, facebook: updated.facebook, zalo: updated.zalo });
   }),
 );
 

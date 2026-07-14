@@ -23,6 +23,7 @@ import type {
   PurchasesResponse,
 } from '../api/types';
 import { useApi } from '../hooks/useApi';
+import { isSafeHttpUrl } from '../lib/url';
 import { useAuth } from '../app/AuthContext';
 import { useToast } from '../components/Toast';
 import { Badge, EmptyState, ErrorState, KvBadge, SkeletonCards } from '../components/ui';
@@ -253,12 +254,6 @@ function InfoTab({ detail, onSaved }: { detail: CustomerDetail; onSaved: () => v
       )}
     </div>
   );
-}
-
-// Guard phòng thủ phía client (nhiều lớp): server đã chuẩn hóa link về http(s) tới host FB/Zalo,
-// nhưng UI vẫn kiểm lại — CHỈ render <a href> khi link là http(s), tránh mọi href javascript:/data:.
-function isSafeHttpUrl(v: string | null): v is string {
-  return !!v && (v.startsWith('https://') || v.startsWith('http://'));
 }
 
 function SocialLinkView({

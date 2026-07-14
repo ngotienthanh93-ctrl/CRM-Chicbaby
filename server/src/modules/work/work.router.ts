@@ -94,6 +94,9 @@ workRouter.get(
       let targetName = 'Không rõ';
       let phone: string | null = null;
       let phoneOf: string | null = null;
+      // Kênh liên hệ MXH (CRM-owned) — hiển thị ngay đầu card để dễ liên lạc, KHÔNG mask.
+      let facebook: string | null = null;
+      let zalo: string | null = null;
       let babies: unknown[] = [];
       // §11.1: danh sách bé của khách để hành động "Xác nhận bé" (chỉ khi có quyền xem bé).
       let confirmableBabies: { id: string; displayName: string }[] = [];
@@ -103,6 +106,8 @@ workRouter.get(
         targetName = f.customer.displayName ?? f.customer.fullName;
         const primary = f.customer.phones.find((p) => p.isPrimary) ?? f.customer.phones[0];
         phone = primary ? maskPhone(primary.phoneRaw, perms.viewSensitive) : null;
+        facebook = f.customer.facebook;
+        zalo = f.customer.zalo;
         // hồ sơ bé chỉ khi CONFIRMED và có quyền
         const confirmedBabyIds = new Set(
           f.reminderSources
@@ -125,6 +130,8 @@ workRouter.get(
         }
       } else if (f.targetType === 'organization' && f.organization) {
         targetName = f.organization.orgName;
+        facebook = f.organization.facebook;
+        zalo = f.organization.zalo;
         // 🔴 UAT-58: đại lý hiện SĐT NGƯỜI ĐẶT HÀNG (fallback isPrimary)
         const contact = pickAgencyContact(
           f.organization.contacts.map((c) => ({
@@ -150,6 +157,8 @@ workRouter.get(
         targetName,
         phone,
         phoneOf,
+        facebook,
+        zalo,
         // 🔴 FIX-1 (phòng vệ theo tầng): không lộ tên bé qua content nếu thiếu quyền.
         content: serializeFollowUpContent(perms, {
           reminderType: f.reminderType,

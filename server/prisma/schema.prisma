@@ -665,6 +665,9 @@ model AllocationHistory {
 model Organization {
   id                       String           @id @default(cuid())
   orgName                  String
+  // Kênh liên hệ MXH của đại lý (CRM-owned, KHÁC SĐT người liên hệ). Chuẩn hóa server-side như khách lẻ.
+  facebook                 String?
+  zalo                     String?
   mainAddress              String?
   province                 String?
   district                 String?

@@ -189,6 +189,13 @@
   font-family: var(--font-num);
   font-weight: 600;
 }
+/* Hàng nút kênh liên hệ (Zalo/Facebook) trên card Việc hôm nay — căn phải khớp stack top-right. */
+.channel-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  justify-content: flex-end;
+}
 .claim-note {
   display: inline-flex;
   align-items: center;
@@ -210,6 +217,11 @@
 }
 .search-box {
   position: relative;
+}
+/* Co giãn ngang chỉ khi nằm trong toolbar (bố cục hàng ngang).
+   Ngoài toolbar (VD .field flex-column ở modal), flex-basis biến thành CHIỀU CAO
+   ⇒ ô search cao 260px, icon trôi ra giữa — nên chỉ áp trong .toolbar. */
+.toolbar .search-box {
   flex: 1 1 260px;
   min-width: 200px;
 }

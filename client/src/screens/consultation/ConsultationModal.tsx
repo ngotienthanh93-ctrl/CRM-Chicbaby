@@ -16,6 +16,7 @@ import { Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { Badge, Skeleton } from '../../components/ui';
 import { temperatureVi } from '../../lib/labels';
+import { fuzzySearchProducts, productLabel } from '../../lib/fuzzy';
 
 interface Deps {
   templates: QuickTemplate[];
@@ -117,13 +118,11 @@ function ConsultationForm({
     () => new Map(deps.products.map((p) => [p.kvProductId, p])),
     [deps.products],
   );
-  const filteredProducts = useMemo(() => {
-    const q = productFilter.trim().toLowerCase();
-    if (!q) return deps.products.slice(0, 40);
-    return deps.products
-      .filter((p) => p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q))
-      .slice(0, 40);
-  }, [deps.products, productFilter]);
+  // Tìm gợi ý gần đúng: chịu thiếu dấu tiếng Việt + sai chính tả nhẹ (xem lib/fuzzy).
+  const filteredProducts = useMemo(
+    () => fuzzySearchProducts(deps.products, productFilter, 40),
+    [deps.products, productFilter],
+  );
 
   // result != 'da_chot' (và != rỗng) ⇒ hỏi lý do chưa mua.
   const showReasonNoBuy = result !== '' && result !== 'da_chot';
@@ -279,19 +278,22 @@ function ConsultationForm({
         </span>
         {advised.length > 0 && (
           <div className="row-wrap" style={{ gap: 6, marginBottom: 6 }}>
-            {advised.map((id) => (
-              <span key={id} className="chip chip-active">
-                {productById.get(id)?.name ?? id}
-                <button
-                  type="button"
-                  className="chip-x"
-                  aria-label="Bỏ chọn"
-                  onClick={() => toggleAdvised(id)}
-                >
-                  <X size={12} aria-hidden />
-                </button>
-              </span>
-            ))}
+            {advised.map((id) => {
+              const p = productById.get(id);
+              return (
+                <span key={id} className="chip chip-active">
+                  {p ? productLabel(p) : id}
+                  <button
+                    type="button"
+                    className="chip-x"
+                    aria-label="Bỏ chọn"
+                    onClick={() => toggleAdvised(id)}
+                  >
+                    <X size={12} aria-hidden />
+                  </button>
+                </span>
+              );
+            })}
           </div>
         )}
         <div className="search-box" style={{ marginBottom: 6 }}>
@@ -315,7 +317,7 @@ function ConsultationForm({
                 onClick={() => toggleAdvised(p.kvProductId)}
                 aria-pressed={checked}
               >
-                <span className="grow wrap-anywhere">{p.name}</span>
+                <span className="grow wrap-anywhere">{productLabel(p)}</span>
                 {checked && <Badge tone="success" icon={false}>Đã chọn</Badge>}
               </button>
             );

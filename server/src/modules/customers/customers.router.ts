@@ -8,7 +8,10 @@ import { maskPhone } from '../../security/masking';
 import { serializeBaby, serializeCustomerSummary, serializeFollowUpContent } from '../../security/serialize';
 import { formatVnDate } from '../../lib/datetime';
 import { normalizePhone } from '../../lib/phone';
-import { normalizeFacebook, normalizeZalo } from './socialLinks';
+import { normalizeFacebook, normalizeZalo, socialLinksSchema } from './socialLinks';
+
+// Re-export để test cũ (socialLinks.schema.test.ts) import from './customers.router' vẫn chạy.
+export { socialLinksSchema };
 
 export const customersRouter = Router();
 customersRouter.use(requireAuth);
@@ -146,12 +149,6 @@ customersRouter.get(
     });
   }),
 );
-
-// Kênh liên hệ MXH (CRM-owned, KHÁC SĐT nguồn KV). Chỉ gửi field CÓ mặt trong body ⇒ cập nhật từng phần.
-export const socialLinksSchema = z.object({
-  facebook: z.string().max(500).nullish(),
-  zalo: z.string().max(500).nullish(),
-});
 
 // 🔴 Ghi FB/Zalo cần manageCustomer (BẤT BIẾN #6): vai thiếu quyền => 403 tại server, không chỉ ẩn ở UI.
 customersRouter.put(

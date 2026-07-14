@@ -9,10 +9,13 @@ import {
   History,
   AlertCircle,
   CheckCircle2,
+  Facebook,
+  MessageCircle,
 } from 'lucide-react';
 import { api } from '../api/client';
 import type { WorkCard, WorkTodayResponse } from '../api/types';
 import { useApi } from '../hooks/useApi';
+import { isSafeHttpUrl } from '../lib/url';
 import { useAuth } from '../app/AuthContext';
 import { useToast } from '../components/Toast';
 import { Badge, EmptyState, ErrorState, SkeletonCards } from '../components/ui';
@@ -148,6 +151,28 @@ function KpiBar({
   );
 }
 
+// Nút kênh liên hệ MXH (Zalo/Facebook) — chỉ render khi link tồn tại & an toàn (http(s)).
+// MessageCircle = Zalo (thống nhất với Customer360Screen).
+function ContactChannels({ facebook, zalo }: { facebook: string | null; zalo: string | null }) {
+  const hasZalo = isSafeHttpUrl(zalo);
+  const hasFb = isSafeHttpUrl(facebook);
+  if (!hasZalo && !hasFb) return null;
+  return (
+    <div className="channel-links">
+      {hasZalo && (
+        <a className="btn btn-outline btn-sm" href={zalo} target="_blank" rel="noopener noreferrer">
+          <MessageCircle size={14} aria-hidden /> Zalo
+        </a>
+      )}
+      {hasFb && (
+        <a className="btn btn-outline btn-sm" href={facebook} target="_blank" rel="noopener noreferrer">
+          <Facebook size={14} aria-hidden /> Facebook
+        </a>
+      )}
+    </div>
+  );
+}
+
 function WorkCardView({ card, onProcess }: { card: WorkCard; onProcess: () => void }) {
   const { permissions, user } = useAuth();
   const toast = useToast();
@@ -192,6 +217,7 @@ function WorkCardView({ card, onProcess }: { card: WorkCard; onProcess: () => vo
             </span>
           )}
           {card.phoneOf && <span className="caption">{card.phoneOf}</span>}
+          <ContactChannels facebook={card.facebook} zalo={card.zalo} />
         </div>
       </div>
 

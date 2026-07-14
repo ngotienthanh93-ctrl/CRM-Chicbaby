@@ -27,6 +27,7 @@ export const WORK_ACTIONS: string[] = [
   'organization.pause',
   'organization.stockout',
   'organization.decline_reason',
+  'organization.update_social_links',
   // Tư vấn
   'consultation.create',
   'consultation.update',
@@ -130,6 +131,8 @@ export function formatActivity(action: string, newValue: unknown): { verb: strin
       return { verb: 'báo shop hết hàng' };
     case 'organization.decline_reason':
       return { verb: 'cập nhật trạng thái đại lý' };
+    case 'organization.update_social_links':
+      return { verb: 'cập nhật kênh liên hệ đại lý (FB/Zalo)' };
     case 'consultation.create':
       return { verb: 'ghi tư vấn' };
     case 'consultation.update':

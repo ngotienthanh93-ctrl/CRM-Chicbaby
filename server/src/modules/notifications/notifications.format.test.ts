@@ -21,6 +21,7 @@ describe('WORK_ACTIONS (allowlist)', () => {
       'followup.snooze',
       'organization.pause',
       'organization.stockout',
+      'organization.update_social_links',
     ]) {
       expect(WORK_ACTIONS).toContain(a);
     }
@@ -88,6 +89,9 @@ describe('formatActivity', () => {
     expect(formatActivity('customer.merge', {}).verb).toBe('gộp khách');
     expect(formatActivity('organization.pause', {}).verb).toBe('tạm dừng cảnh báo đại lý');
     expect(formatActivity('organization.stockout', {}).verb).toBe('báo shop hết hàng');
+    expect(formatActivity('organization.update_social_links', {}).verb).toBe(
+      'cập nhật kênh liên hệ đại lý (FB/Zalo)',
+    );
     expect(formatActivity('consultation.create', {}).verb).toBe('ghi tư vấn');
     expect(formatActivity('baby.create', {}).verb).toBe('tạo hồ sơ bé');
   });

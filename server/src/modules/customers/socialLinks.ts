@@ -1,4 +1,12 @@
+import { z } from 'zod';
 import { badRequest } from '../../lib/http';
+
+// Kênh liên hệ MXH (CRM-owned, KHÁC SĐT nguồn KV). Dùng CHUNG cho khách lẻ + đại lý.
+// Chỉ gửi field CÓ mặt trong body ⇒ cập nhật từng phần; chuỗi tối đa 500 ký tự; null = gỡ link.
+export const socialLinksSchema = z.object({
+  facebook: z.string().max(500).nullish(),
+  zalo: z.string().max(500).nullish(),
+});
 
 // Chuẩn hóa & kiểm tra link mạng xã hội của khách (SERVER-SIDE).
 // Mục tiêu bảo mật: link được lưu rồi render thành href ở client => TUYỆT ĐỐI chỉ cho

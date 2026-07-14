@@ -11,10 +11,18 @@ import {
   ArrowRightLeft,
   Store,
   CircleAlert,
+  Facebook,
+  MessageCircle,
+  ExternalLink,
+  Pencil,
+  Check,
+  X,
 } from 'lucide-react';
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 import type { OrgDetail, OrgSummary } from '../api/types';
 import { useApi } from '../hooks/useApi';
+import { isSafeHttpUrl } from '../lib/url';
+import { useAuth } from '../app/AuthContext';
 import { useToast } from '../components/Toast';
 import { Modal } from '../components/Modal';
 import { Badge, EmptyState, ErrorState, SkeletonCards } from '../components/ui';
@@ -198,7 +206,7 @@ function OrgDetailView({ id, onBack }: { id: string; onBack: () => void }) {
 
           <div className="tab-panel">
             {tab === 'health' && <HealthTab detail={state.data} />}
-            {tab === 'contacts' && <ContactsTab detail={state.data} />}
+            {tab === 'contacts' && <ContactsTab detail={state.data} onSaved={state.reload} />}
             {tab === 'competition' && <CompetitionTab detail={state.data} />}
             {tab === 'exceptions' && <ExceptionsTab detail={state.data} />}
           </div>
@@ -265,30 +273,173 @@ function HealthTab({ detail }: { detail: OrgDetail }) {
   );
 }
 
-function ContactsTab({ detail }: { detail: OrgDetail }) {
-  if (detail.contacts.length === 0)
-    return <EmptyState title="Chưa có người liên hệ" hint="Thêm liên hệ để nhắc đúng người đặt hàng." />;
+function ContactsTab({ detail, onSaved }: { detail: OrgDetail; onSaved: () => void }) {
   return (
-    <div className="stack">
-      {detail.contacts.map((c) => (
-        <div key={c.id} className="card card-pad between">
-          <div className="stack-2" style={{ gap: 2 }}>
-            <b>{c.name}</b>
-            <div className="row" style={{ gap: 8 }}>
-              <Badge tone={c.role === 'nguoi_dat_hang' ? 'primary' : 'neutral'} icon={false}>
-                {orgContactRoleVi[c.role] ?? c.role}
-              </Badge>
-              {c.isPrimary && <span className="caption">Liên hệ chính</span>}
+    <div className="stack-4">
+      <OrgContactChannelsCard detail={detail} onSaved={onSaved} />
+      {detail.contacts.length === 0 ? (
+        <EmptyState title="Chưa có người liên hệ" hint="Thêm liên hệ để nhắc đúng người đặt hàng." />
+      ) : (
+        <div className="stack">
+          {detail.contacts.map((c) => (
+            <div key={c.id} className="card card-pad between">
+              <div className="stack-2" style={{ gap: 2 }}>
+                <b>{c.name}</b>
+                <div className="row" style={{ gap: 8 }}>
+                  <Badge tone={c.role === 'nguoi_dat_hang' ? 'primary' : 'neutral'} icon={false}>
+                    {orgContactRoleVi[c.role] ?? c.role}
+                  </Badge>
+                  {c.isPrimary && <span className="caption">Liên hệ chính</span>}
+                </div>
+              </div>
+              {c.phone && (
+                <span className="phone-chip">
+                  <Phone size={14} aria-hidden />
+                  {c.phone}
+                </span>
+              )}
             </div>
-          </div>
-          {c.phone && (
-            <span className="phone-chip">
-              <Phone size={14} aria-hidden />
-              {c.phone}
-            </span>
-          )}
+          ))}
         </div>
-      ))}
+      )}
+    </div>
+  );
+}
+
+// Hiển thị 1 kênh liên hệ MXH của đại lý (mirror SocialLinkView của Customer360).
+function OrgSocialLinkView({
+  label,
+  channel,
+  url,
+  icon: Icon,
+}: {
+  label: string;
+  channel: string;
+  url: string | null;
+  icon: typeof Facebook;
+}) {
+  return (
+    <div className="info-item">
+      <span className="label">{label}</span>
+      {isSafeHttpUrl(url) ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn btn-outline btn-sm"
+          style={{ alignSelf: 'flex-start' }}
+        >
+          <Icon size={15} aria-hidden />
+          Nhắn tin {channel}
+          <ExternalLink size={13} aria-hidden />
+        </a>
+      ) : url ? (
+        // Link không phải http(s) (bất thường) => hiện text thường, KHÔNG tạo href.
+        <span className="value wrap-anywhere">{url}</span>
+      ) : (
+        <span className="value muted">Chưa có</span>
+      )}
+    </div>
+  );
+}
+
+// Card "Kênh liên hệ" đại lý — xem + sửa FB/Zalo (ghi cần manageOrganization; server chuẩn hóa link).
+function OrgContactChannelsCard({ detail, onSaved }: { detail: OrgDetail; onSaved: () => void }) {
+  const { permissions } = useAuth();
+  const toast = useToast();
+  const canManage = permissions?.manageOrganization ?? false;
+  const [editing, setEditing] = useState(false);
+  const [fb, setFb] = useState('');
+  const [zalo, setZalo] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = () => {
+    setFb(detail.facebook ?? '');
+    setZalo(detail.zalo ?? '');
+    setEditing(true);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put(`/api/organizations/${detail.id}/social-links`, {
+        facebook: fb.trim(),
+        zalo: zalo.trim(),
+      });
+      toast('success', 'Đã cập nhật kênh liên hệ.');
+      setEditing(false);
+      onSaved();
+    } catch (err) {
+      // 400 (link sai) / 403 (thiếu quyền) => hiện đúng thông điệp từ server.
+      toast('error', err instanceof ApiError ? err.message : 'Không lưu được kênh liên hệ.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="card card-pad stack-2">
+      <div className="between">
+        <h3 className="h3">Kênh liên hệ</h3>
+        {canManage && !editing && (
+          <button
+            className="btn btn-ghost btn-icon"
+            aria-label="Sửa kênh liên hệ"
+            onClick={startEdit}
+          >
+            <Pencil size={15} aria-hidden />
+          </button>
+        )}
+      </div>
+
+      {editing ? (
+        <div className="stack-2">
+          <div className="field">
+            <label className="label" htmlFor="org-fb">
+              Facebook
+            </label>
+            <input
+              id="org-fb"
+              className="input"
+              value={fb}
+              onChange={(e) => setFb(e.target.value)}
+              placeholder="facebook.com/… hoặc tên trang"
+              autoComplete="off"
+            />
+          </div>
+          <div className="field">
+            <label className="label" htmlFor="org-zalo">
+              Zalo
+            </label>
+            <input
+              id="org-zalo"
+              className="input"
+              value={zalo}
+              onChange={(e) => setZalo(e.target.value)}
+              placeholder="zalo.me/… hoặc số điện thoại"
+              autoComplete="off"
+            />
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
+              <Check size={15} aria-hidden />
+              Lưu
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setEditing(false)} disabled={saving}>
+              <X size={15} aria-hidden />
+              Hủy
+            </button>
+          </div>
+          <p className="caption">
+            Để trống rồi Lưu để gỡ liên kết. Chỉ nhận liên kết Facebook / Zalo.
+          </p>
+        </div>
+      ) : (
+        <div className="info-grid">
+          <OrgSocialLinkView label="Facebook" channel="Facebook" url={detail.facebook} icon={Facebook} />
+          <OrgSocialLinkView label="Zalo" channel="Zalo" url={detail.zalo} icon={MessageCircle} />
+        </div>
+      )}
     </div>
   );
 }
