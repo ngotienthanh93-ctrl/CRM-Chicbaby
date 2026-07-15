@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { asyncHandler } from '../../lib/http';
 import { requireAuth, requirePermission } from '../../middleware/auth';
@@ -30,10 +31,26 @@ workRouter.get(
     const now = new Date();
     const today = vnToday(now);
 
-    const whereBase = {
+    // 🔴 BẤT BIẾN #6: user thiếu viewOrganization không thấy việc ĐẠI LÝ (targetType='organization')
+    // LẪN việc của KHÁCH SỈ (khách có vai wholesale_contact, kể cả dual-role lẻ+sỉ) — ở CẢ "Việc của tôi"
+    // lẫn "Toàn đội". Dùng chung cho danh sách và KPI để số liệu khớp nhau.
+    const hideWholesale: Prisma.FollowUpWhereInput = perms.viewOrganization
+      ? {}
+      : {
+          NOT: [
+            { targetType: 'organization' },
+            {
+              targetType: 'customer',
+              customer: { is: { roles: { some: { role: 'wholesale_contact' } } } },
+            },
+          ],
+        };
+
+    const whereBase: Prisma.FollowUpWhereInput = {
       isHoldout: false, // 🔴 WORK-02: việc holdout KHÔNG hiện
       status: { in: [...OPEN_STATUSES] },
       ...(scope === 'mine' ? { assigneeId: auth.userId } : {}),
+      ...hideWholesale,
     };
 
     const followUps = await prisma.followUp.findMany({
@@ -77,6 +94,9 @@ workRouter.get(
       let targetName = 'Không rõ';
       let phone: string | null = null;
       let phoneOf: string | null = null;
+      // Kênh liên hệ MXH (CRM-owned) — hiển thị ngay đầu card để dễ liên lạc, KHÔNG mask.
+      let facebook: string | null = null;
+      let zalo: string | null = null;
       let babies: unknown[] = [];
       // §11.1: danh sách bé của khách để hành động "Xác nhận bé" (chỉ khi có quyền xem bé).
       let confirmableBabies: { id: string; displayName: string }[] = [];
@@ -86,6 +106,8 @@ workRouter.get(
         targetName = f.customer.displayName ?? f.customer.fullName;
         const primary = f.customer.phones.find((p) => p.isPrimary) ?? f.customer.phones[0];
         phone = primary ? maskPhone(primary.phoneRaw, perms.viewSensitive) : null;
+        facebook = f.customer.facebook;
+        zalo = f.customer.zalo;
         // hồ sơ bé chỉ khi CONFIRMED và có quyền
         const confirmedBabyIds = new Set(
           f.reminderSources
@@ -108,6 +130,8 @@ workRouter.get(
         }
       } else if (f.targetType === 'organization' && f.organization) {
         targetName = f.organization.orgName;
+        facebook = f.organization.facebook;
+        zalo = f.organization.zalo;
         // 🔴 UAT-58: đại lý hiện SĐT NGƯỜI ĐẶT HÀNG (fallback isPrimary)
         const contact = pickAgencyContact(
           f.organization.contacts.map((c) => ({
@@ -133,6 +157,8 @@ workRouter.get(
         targetName,
         phone,
         phoneOf,
+        facebook,
+        zalo,
         // 🔴 FIX-1 (phòng vệ theo tầng): không lộ tên bé qua content nếu thiếu quyền.
         content: serializeFollowUpContent(perms, {
           reminderType: f.reminderType,
@@ -171,6 +197,8 @@ workRouter.get(
         status: { in: ['da_mua_lai', 'dong'] },
         updatedAt: { gte: today },
         ...(scope === 'mine' ? { assigneeId: auth.userId } : {}),
+        // 🔴 BẤT BIẾN #6: KPI "xong hôm nay" loại việc đại lý + khách sỉ để khớp danh sách hiển thị.
+        ...hideWholesale,
       },
     });
 

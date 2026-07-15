@@ -11,6 +11,7 @@ import {
   FlaskConical,
   FileDown,
   Lock,
+  Bell,
   type LucideIcon,
 } from 'lucide-react';
 import type { Permissions } from '../api/types';
@@ -95,6 +96,15 @@ export const NAV_ITEMS: NavItem[] = [
     group: 'system',
     // Ẩn với Marketing; hiển thị cho vai có xem đại lý hoặc theo dõi đồng bộ.
     visible: (p) => p.viewOrganization || p.viewSync,
+  },
+  {
+    path: '/thong-bao',
+    label: 'Thông báo',
+    shortLabel: 'Thông báo',
+    icon: Bell,
+    group: 'system',
+    // Trung tâm thông báo hoạt động nhân viên: CHỈ Chủ shop. Server cũng chặn 403.
+    visible: (p) => p.role === 'chu_shop',
   },
   {
     path: '/quan-tri',

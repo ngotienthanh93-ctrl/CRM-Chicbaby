@@ -4,6 +4,7 @@ import { prisma } from '../../lib/prisma';
 import { asyncHandler, badRequest, conflict, notFound } from '../../lib/http';
 import { requireAuth, requirePermission } from '../../middleware/auth';
 import { writeAudit } from '../../security/audit';
+import { assertCustomerVisible } from '../../security/customerVisibility';
 import { verifyReauth } from '../../security/reauth';
 import { serializeBaby } from '../../security/serialize';
 import { estimatedBirthMonthFrom, hasValidAgeIdentity } from '../../engines/babyAge';
@@ -44,6 +45,8 @@ babiesRouter.post(
       where: { id: d.customerId, deletedAt: null },
     });
     if (!customer) throw notFound('Không tìm thấy khách hàng.');
+    // 🔴 BẤT BIẾN #6: viewBaby+manageBaby nhưng thiếu viewOrganization ⇒ không tạo bé cho KHÁCH SỈ.
+    await assertCustomerVisible(d.customerId, req.permissions!);
 
     const now = new Date();
     const birthDate = d.birthDate ? new Date(d.birthDate) : null;
@@ -100,6 +103,8 @@ babiesRouter.put(
       where: { id: String(req.params.id), deletedAt: null },
     });
     if (!existing) throw notFound('Không tìm thấy hồ sơ bé.');
+    // 🔴 BẤT BIẾN #6: không sửa bé thuộc KHÁCH SỈ khi thiếu viewOrganization (404 khớp message để không lộ tồn tại).
+    await assertCustomerVisible(existing.customerId, req.permissions!, 'Không tìm thấy hồ sơ bé.');
 
     const now = new Date();
     const birthDate =
@@ -167,6 +172,8 @@ babiesRouter.delete(
       where: { id: String(req.params.id), deletedAt: null },
     });
     if (!existing) throw notFound('Không tìm thấy hồ sơ bé.');
+    // 🔴 BẤT BIẾN #6: không xóa bé thuộc KHÁCH SỈ khi thiếu viewOrganization (404 khớp message để không lộ tồn tại).
+    await assertCustomerVisible(existing.customerId, req.permissions!, 'Không tìm thấy hồ sơ bé.');
 
     await prisma.babyProfile.update({
       where: { id: existing.id },

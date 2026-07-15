@@ -3,19 +3,41 @@ import { z } from 'zod';
 import { prisma } from '../../lib/prisma';
 import { asyncHandler, badRequest, conflict, forbidden, notFound } from '../../lib/http';
 import { requireAuth, requirePermission } from '../../middleware/auth';
-import { writeAudit } from '../../security/audit';
+import { writeAudit, writeAuditBestEffort } from '../../security/audit';
 import { assertBabyBelongsToCustomer } from '../../security/ownership';
 import { canRelease, claimableWhereOr } from './claim';
-import { addDays } from '../../lib/datetime';
+import { addDays, formatVnDate } from '../../lib/datetime';
 import { DEFAULT_ENGINE_CONFIG } from '../../lib/config';
 import { decideNoAnswer } from '../../engines/consumption';
 import { verifyRepurchase } from './repurchase';
+import { parseImageDataUrl, MAX_EVIDENCE_BYTES } from './attachments';
 
 export const followupsRouter = Router();
 // 🔴 FIX-2: mọi route xử lý việc (result/close/mark-purchased/snooze/claim/heartbeat/
 // release/reassign/confirm-baby) chỉ cho vai xử lý việc. Marketing & tro_ly_du_lieu => 403.
 // confirm-baby còn siết thêm requirePermission('manageBaby') tại route.
 followupsRouter.use(requireAuth, requirePermission('processWork'));
+
+// 🔴 BẤT BIẾN #6: user thiếu viewOrganization không được thao tác/xem follow-up của ĐẠI LÝ
+// (targetType='organization') LẪN follow-up của KHÁCH SỈ (khách có vai wholesale_contact, kể cả dual-role
+// lẻ+sỉ). Chặn theo tầng cho MỌI route con /:id (result/close/snooze/mark-purchased/reassign/attachments...).
+// 404 để không lộ tồn tại. `router.use('/:id')` không khớp route không có :id.
+followupsRouter.use(
+  '/:id',
+  asyncHandler(async (req, _res, next) => {
+    const perms = req.permissions!;
+    if (perms.viewOrganization) return next();
+    const fu = await prisma.followUp.findUnique({
+      where: { id: String(req.params.id) },
+      select: { targetType: true, customer: { select: { roles: { select: { role: true } } } } },
+    });
+    const isWholesaleCustomer = fu?.customer?.roles.some((r) => r.role === 'wholesale_contact') ?? false;
+    if (fu && (fu.targetType === 'organization' || isWholesaleCustomer)) {
+      throw notFound('Không tìm thấy việc cần làm.');
+    }
+    next();
+  }),
+);
 
 const cfg = DEFAULT_ENGINE_CONFIG;
 
@@ -36,6 +58,15 @@ async function loadFollowUp(id: string) {
   const fu = await prisma.followUp.findUnique({ where: { id } });
   if (!fu) throw notFound('Không tìm thấy việc cần làm.');
   return fu;
+}
+
+/**
+ * Bắt buộc có ≥1 ảnh bằng chứng (chưa xóa) trước khi chốt kết quả "đã/sẽ mua" hoặc ĐÓNG việc —
+ * chống báo khống. Dùng chung cho /result, /mark-purchased và /close.
+ */
+async function requireContactEvidence(followUpId: string): Promise<void> {
+  const n = await prisma.followUpAttachment.count({ where: { followUpId, deletedAt: null } });
+  if (n === 0) throw badRequest('Cần đính kèm ảnh bằng chứng trước khi ghi kết quả này.');
 }
 
 async function recordStatus(
@@ -173,6 +204,14 @@ followupsRouter.post(
     const parsed = resultSchema.safeParse(req.body);
     if (!parsed.success) throw badRequest('Kết quả không hợp lệ.');
     const fu = await loadFollowUp(String(req.params.id));
+    // 🔴 Bắt buộc ảnh bằng chứng khi khách ĐÃ MUA / SẼ MUA (enforce SERVER-SIDE, không chỉ khóa nút UI).
+    // Chống nhân viên báo kết quả khống mà không thực sự liên hệ. "Không nghe máy" thì tùy chọn.
+    if (
+      parsed.data.outcome === 'already_purchased' ||
+      parsed.data.outcome === 'intends_to_purchase'
+    ) {
+      await requireContactEvidence(fu.id);
+    }
     await guardFollowUpVersion(fu.id, parsed.data.version);
     const now = new Date();
     const userId = req.auth!.userId;
@@ -192,6 +231,14 @@ followupsRouter.post(
         },
       });
       await recordStatus(fu.id, fu.status, 'da_lien_he', userId, `Không nghe máy (lần ${attemptCount})`);
+      await writeAuditBestEffort({
+        userId,
+        action: 'followup.result',
+        objectType: 'follow_up',
+        objectId: fu.id,
+        newValue: { outcome: 'no_answer', attemptCount },
+        ip: req.ip,
+      });
       res.json({ ok: true, attemptCount, decision });
       return;
     }
@@ -225,6 +272,14 @@ followupsRouter.post(
           data: { status: 'da_mua_lai', claimState: 'completed' },
         });
         await recordStatus(fu.id, 'da_lien_he', 'da_mua_lai', userId, 'Xác minh có hóa đơn mua lại');
+        await writeAuditBestEffort({
+          userId,
+          action: 'followup.result',
+          objectType: 'follow_up',
+          objectId: fu.id,
+          newValue: { outcome: 'already_purchased', verification: 'verified' },
+          ip: req.ip,
+        });
         res.json({ ok: true, verification: 'verified' });
         return;
       }
@@ -236,6 +291,14 @@ followupsRouter.post(
         customerReport: 'already_purchased',
       });
       await recordStatus(fu.id, fu.status, 'da_lien_he', userId, 'Khách báo đã mua (chờ đối soát)');
+      await writeAuditBestEffort({
+        userId,
+        action: 'followup.result',
+        objectType: 'follow_up',
+        objectId: fu.id,
+        newValue: { outcome: 'already_purchased', verification: 'pending' },
+        ip: req.ip,
+      });
       res.json({ ok: true, verification: 'pending' });
       return;
     }
@@ -257,6 +320,14 @@ followupsRouter.post(
       },
     });
     await recordStatus(fu.id, fu.status, 'hen_lai', userId, 'Khách nói sẽ mua — hẹn kiểm tra lại');
+    await writeAuditBestEffort({
+      userId,
+      action: 'followup.result',
+      objectType: 'follow_up',
+      objectId: fu.id,
+      newValue: { outcome: 'intends_to_purchase' },
+      ip: req.ip,
+    });
     res.json({ ok: true, recheckInDays: cfg.intent.recheckDays });
   }),
 );
@@ -281,6 +352,14 @@ followupsRouter.post(
       data: { dueDate: newDue, status: 'hen_lai', reminderCount: { increment: 1 } },
     });
     await recordStatus(fu.id, fu.status, 'hen_lai', req.auth!.userId, 'Dời nhắc');
+    await writeAuditBestEffort({
+      userId: req.auth!.userId,
+      action: 'followup.snooze',
+      objectType: 'follow_up',
+      objectId: fu.id,
+      newValue: parsed.data.date ? { date: parsed.data.date } : { days: parsed.data.days },
+      ip: req.ip,
+    });
     res.json({ ok: true });
   }),
 );
@@ -304,12 +383,24 @@ followupsRouter.post(
     const parsed = closeSchema.safeParse(req.body);
     if (!parsed.success) throw badRequest('Đóng việc BẮT BUỘC chọn lý do.');
     const fu = await loadFollowUp(String(req.params.id));
+    // 🔴 Bắt buộc ảnh bằng chứng liên hệ trước khi đóng việc — chống báo khống (enforce SERVER-SIDE,
+    // không chỉ khóa nút UI). Áp dụng cho MỌI lý do đóng, không ngoại lệ: kể cả "không phản hồi"
+    // (không gọi được) cũng phải có ảnh thực hiện cuộc gọi. Chặn TRƯỚC mọi mutation => thiếu ảnh thì 400 ngay.
+    await requireContactEvidence(fu.id);
     await guardFollowUpVersion(fu.id, parsed.data.version);
     await prisma.followUp.update({
       where: { id: fu.id },
       data: { status: 'dong', closeReason: parsed.data.closeReason, claimState: 'completed' },
     });
     await recordStatus(fu.id, fu.status, 'dong', req.auth!.userId, parsed.data.note);
+    await writeAuditBestEffort({
+      userId: req.auth!.userId,
+      action: 'followup.close',
+      objectType: 'follow_up',
+      objectId: fu.id,
+      newValue: { closeReason: parsed.data.closeReason },
+      ip: req.ip,
+    });
     res.json({ ok: true });
   }),
 );
@@ -320,6 +411,9 @@ followupsRouter.post(
   '/:id/mark-purchased',
   asyncHandler(async (req, res) => {
     const fu = await loadFollowUp(String(req.params.id));
+    // 🔴 Cùng chốt "đã mua" như /result:already_purchased => cũng bắt buộc ảnh bằng chứng, TRƯỚC mọi
+    // mutation/verify. Nếu không có ảnh thì 400 ngay, không hoàn tất (chống né qua đường mark-purchased).
+    await requireContactEvidence(fu.id);
     const now = new Date();
     const userId = req.auth!.userId;
     const verification = await verifyRepurchase(prisma, fu.id, cfg, now);
@@ -331,6 +425,14 @@ followupsRouter.post(
         verificationStatus: 'not_found',
         attributionStatus: 'not_attributed',
         customerReport: 'already_purchased',
+      });
+      await writeAuditBestEffort({
+        userId,
+        action: 'followup.mark_purchased',
+        objectType: 'follow_up',
+        objectId: fu.id,
+        newValue: { verified: false },
+        ip: req.ip,
       });
       res.json({
         ok: false,
@@ -359,6 +461,14 @@ followupsRouter.post(
       data: { status: 'da_mua_lai', claimState: 'completed' },
     });
     await recordStatus(fu.id, fu.status, 'da_mua_lai', userId, 'Xác minh có hóa đơn mua lại (KV)');
+    await writeAuditBestEffort({
+      userId,
+      action: 'followup.mark_purchased',
+      objectType: 'follow_up',
+      objectId: fu.id,
+      newValue: { verified: true, invoiceLineId: verification.invoiceLineId },
+      ip: req.ip,
+    });
     res.json({ ok: true, verified: true, invoiceLineId: verification.invoiceLineId });
   }),
 );
@@ -435,6 +545,144 @@ followupsRouter.post(
     res.json({ ok: true, updatedAllocations });
   }),
 );
+
+// ============================================================
+// Ảnh bằng chứng liên hệ (đính kèm khi ghi kết quả cuộc gọi)
+// Router đã gate requireAuth + requirePermission('processWork') => Marketing KHÔNG xem/gắn được.
+// ============================================================
+const addAttachmentSchema = z.object({
+  image: z.string(),
+  caption: z.string().max(300).optional(),
+});
+followupsRouter.post(
+  '/:id/attachments',
+  asyncHandler(async (req, res) => {
+    const parsed = addAttachmentSchema.safeParse(req.body);
+    if (!parsed.success) throw badRequest('Ảnh bằng chứng không hợp lệ.');
+    const fu = await loadFollowUp(String(req.params.id)); // 404 nếu không tồn tại
+    const { mimeType, buffer } = parseImageDataUrl(parsed.data.image, MAX_EVIDENCE_BYTES);
+    const userId = req.auth!.userId;
+    const created = await prisma.followUpAttachment.create({
+      data: {
+        followUpId: fu.id,
+        uploadedBy: userId,
+        mimeType,
+        sizeBytes: buffer.length,
+        caption: parsed.data.caption ?? null,
+        // Prisma Bytes yêu cầu Uint8Array<ArrayBuffer>; sao chép từ Buffer để khớp kiểu.
+        data: new Uint8Array(buffer),
+      },
+      select: { id: true, createdAt: true, sizeBytes: true, mimeType: true, caption: true },
+    });
+    await writeAudit({
+      userId,
+      action: 'followup.add_evidence',
+      objectType: 'follow_up',
+      objectId: fu.id,
+      newValue: { sizeBytes: created.sizeBytes, mimeType: created.mimeType },
+      ip: req.ip,
+    });
+    res.json({
+      id: created.id,
+      createdAt: created.createdAt,
+      sizeBytes: created.sizeBytes,
+      mimeType: created.mimeType,
+      caption: created.caption,
+      uploadedByName: req.auth!.fullName,
+    });
+  }),
+);
+
+followupsRouter.get(
+  '/:id/attachments',
+  asyncHandler(async (req, res) => {
+    const followUpId = String(req.params.id);
+    // 🔴 KHÔNG select `data` (bytes nặng) trong danh sách — chỉ metadata + URL stream riêng.
+    const rows = await prisma.followUpAttachment.findMany({
+      where: { followUpId, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        uploadedBy: true,
+        caption: true,
+        createdAt: true,
+        sizeBytes: true,
+      },
+    });
+    const names = await uploaderNames(rows.map((r) => r.uploadedBy));
+    res.json({
+      items: rows.map((r) => ({
+        id: r.id,
+        url: `/api/followups/${followUpId}/attachments/${r.id}/file`,
+        uploadedBy: r.uploadedBy,
+        uploadedByName: names.get(r.uploadedBy) ?? null,
+        caption: r.caption,
+        createdAt: formatVnDate(r.createdAt),
+        sizeBytes: r.sizeBytes,
+      })),
+    });
+  }),
+);
+
+followupsRouter.get(
+  '/:id/attachments/:attId/file',
+  asyncHandler(async (req, res) => {
+    const row = await prisma.followUpAttachment.findFirst({
+      where: {
+        id: String(req.params.attId),
+        followUpId: String(req.params.id),
+        deletedAt: null,
+      },
+      select: { data: true, mimeType: true },
+    });
+    if (!row) throw notFound('Không tìm thấy ảnh bằng chứng.');
+    res.setHeader('Content-Type', row.mimeType);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('Content-Disposition', 'inline');
+    res.end(Buffer.from(row.data));
+  }),
+);
+
+followupsRouter.delete(
+  '/:id/attachments/:attId',
+  asyncHandler(async (req, res) => {
+    // 🔴 Chỉ Chủ shop được xóa ảnh bằng chứng (chống nhân viên phi tang). Soft-delete, giữ audit.
+    if (req.auth!.role !== 'chu_shop') {
+      throw forbidden('Chỉ chủ shop được xóa ảnh bằng chứng.');
+    }
+    const followUpId = String(req.params.id);
+    const attId = String(req.params.attId);
+    const row = await prisma.followUpAttachment.findFirst({
+      where: { id: attId, followUpId, deletedAt: null },
+      select: { id: true, uploadedBy: true },
+    });
+    if (!row) throw notFound('Không tìm thấy ảnh bằng chứng.');
+    await prisma.followUpAttachment.update({
+      where: { id: row.id },
+      data: { deletedAt: new Date() },
+    });
+    await writeAudit({
+      userId: req.auth!.userId,
+      action: 'followup.delete_evidence',
+      objectType: 'follow_up',
+      objectId: followUpId,
+      newValue: { attachmentId: row.id, uploadedBy: row.uploadedBy },
+      ip: req.ip,
+    });
+    res.json({ ok: true });
+  }),
+);
+
+/** Map userId -> fullName cho danh sách ảnh (join tên người gắn từ bảng user). */
+async function uploaderNames(ids: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Map();
+  const users = await prisma.user.findMany({
+    where: { id: { in: unique } },
+    select: { id: true, fullName: true },
+  });
+  return new Map(users.map((u) => [u.id, u.fullName]));
+}
 
 function addMinutes(d: Date, m: number): Date {
   return new Date(d.getTime() + m * 60000);

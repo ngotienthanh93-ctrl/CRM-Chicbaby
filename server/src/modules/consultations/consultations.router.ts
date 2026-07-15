@@ -7,6 +7,7 @@ import { prisma } from '../../lib/prisma';
 import { asyncHandler, badRequest, conflict, notFound } from '../../lib/http';
 import { requireAuth, requirePermission } from '../../middleware/auth';
 import { writeAudit } from '../../security/audit';
+import { assertCustomerVisible } from '../../security/customerVisibility';
 import { assertBabyBelongsToCustomer } from '../../security/ownership';
 import { appointmentClashesWithin } from '../../engines/consultation';
 import { formatVnDate, formatVnDateTime, vnToday } from '../../lib/datetime';
@@ -61,6 +62,8 @@ consultationsRouter.get(
       include: { advisedProducts: true, _count: { select: { versions: true } } },
     });
     if (!c) throw notFound('Không tìm thấy ghi chú tư vấn.');
+    // 🔴 BẤT BIẾN #6: không xem tư vấn của KHÁCH SỈ khi thiếu viewOrganization (404 khớp message để không lộ tồn tại).
+    await assertCustomerVisible(c.customerId, req.permissions!, 'Không tìm thấy ghi chú tư vấn.');
     res.json(serializeConsultation(c));
   }),
 );
@@ -92,6 +95,8 @@ consultationsRouter.post(
 
     const customer = await prisma.customerCrm.findFirst({ where: { id: d.customerId, deletedAt: null } });
     if (!customer) throw notFound('Không tìm thấy khách hàng.');
+    // 🔴 BẤT BIẾN #6: không tạo tư vấn cho KHÁCH SỈ khi thiếu viewOrganization.
+    await assertCustomerVisible(d.customerId, req.permissions!);
     // Bé (nếu có) phải thuộc đúng khách (chống gán chéo — SEC-FIX-1).
     if (d.babyId) await assertBabyBelongsToCustomer(d.babyId, d.customerId);
 
@@ -159,6 +164,8 @@ consultationsRouter.put(
       include: { advisedProducts: true },
     });
     if (!existing) throw notFound('Không tìm thấy ghi chú tư vấn.');
+    // 🔴 BẤT BIẾN #6: không sửa tư vấn của KHÁCH SỈ khi thiếu viewOrganization (404 khớp message để không lộ tồn tại).
+    await assertCustomerVisible(existing.customerId, req.permissions!, 'Không tìm thấy ghi chú tư vấn.');
 
     if (d.babyId != null) await assertBabyBelongsToCustomer(d.babyId, existing.customerId);
 

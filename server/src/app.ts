@@ -26,6 +26,7 @@ import { reportsRouter } from './modules/reports/reports.router';
 import { adminRouter } from './modules/admin/admin.router';
 import { experimentsRouter } from './modules/experiments/experiments.router';
 import { exportsRouter } from './modules/exports/exports.router';
+import { notificationsRouter } from './modules/notifications/notifications.router';
 
 export function createApp() {
   const app = express();
@@ -50,6 +51,10 @@ export function createApp() {
   // 🔴 Webhook KiotViet dùng body RAW (verify chữ ký HMAC) ⇒ mount TRƯỚC express.json để không bị parse mất
   // raw body. Endpoint máy-tới-máy, xác thực bằng chữ ký (không phiên) — KHÔNG đặt sau lớp auth.
   app.use('/api/sync/kiotviet', syncWebhookRouter);
+  // 🔴 Ảnh bằng chứng gửi base64 (data URL) trong body JSON => vượt trần 100kb mặc định.
+  // Parser 8mb CHỈ cho namespace followups; mount TRƯỚC express.json global (parser sau bỏ qua
+  // request đã parse). Giữ trần mặc định cho phần còn lại (giảm bề mặt tấn công payload lớn).
+  app.use('/api/followups', express.json({ limit: '8mb' }));
   app.use(express.json());
   // 🔴 SEC-FIX-5 (CSRF CWE-352): BỎ express.urlencoded — API chỉ nhận JSON.
   // Loại bề mặt form-CSRF (HTML form chỉ gửi được application/x-www-form-urlencoded / multipart).
@@ -95,6 +100,8 @@ export function createApp() {
   app.use('/api/admin', adminRouter);
   app.use('/api/experiments', experimentsRouter);
   app.use('/api/exports', exportsRouter);
+  // Trung tâm thông báo hoạt động nhân viên — router tự gate chu_shop (403 với vai khác).
+  app.use('/api/notifications', notificationsRouter);
 
   // 404 + error handler (đặt cuối)
   app.use(notFoundHandler);

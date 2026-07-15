@@ -72,3 +72,20 @@ export async function writeAudit(input: AuditInput, client: AuditClient = prisma
     },
   });
 }
+
+/**
+ * Ghi audit "best-effort": KHÔNG bao giờ ném lỗi ra ngoài (dùng cho audit PHỤ như feed thông báo).
+ * Lý do: các audit này được thêm SAU khi mutation nghiệp vụ đã commit (ngoài transaction); nếu ghi log
+ * lỗi thì KHÔNG được để nó làm hỏng thao tác đã thành công (tránh client retry gây double-effect).
+ * Audit bảo mật quan trọng vẫn dùng `writeAudit` thường (hoặc trong transaction).
+ */
+export async function writeAuditBestEffort(
+  input: AuditInput,
+  client: AuditClient = prisma,
+): Promise<void> {
+  try {
+    await writeAudit(input, client);
+  } catch (err) {
+    console.error('[audit] best-effort thất bại:', (err as Error)?.message);
+  }
+}

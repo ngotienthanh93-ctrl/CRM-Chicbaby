@@ -39,6 +39,7 @@ async function clearAll() {
   await prisma.reminderSource.deleteMany();
   await prisma.followUpConversion.deleteMany();
   await prisma.followUpStateHistory.deleteMany();
+  await prisma.followUpAttachment.deleteMany(); // ảnh bằng chứng liên hệ tham chiếu follow_ups (FK)
   await prisma.followUp.deleteMany();
   await prisma.allocationHistory.deleteMany();
   await prisma.invoiceItemBabyAllocation.deleteMany();
@@ -322,6 +323,7 @@ async function main() {
     consentCare?: boolean; // mặc định true
     extraKvCode?: string; // liên kết 2 mã KV (CUS-09)
     facebook?: string;
+    zalo?: string; // kênh liên hệ MXH minh họa (đã ở dạng https chuẩn hóa)
   }
 
   const SHARED_FAMILY_PHONE = '0988777666'; // 2 khách chung số (CUS-13)
@@ -429,7 +431,8 @@ async function main() {
     phone: '0921112223',
     roles: ['retail_customer'],
     babies: [],
-    facebook: 'fb.com/tranthidup',
+    facebook: 'https://facebook.com/tranthidup',
+    zalo: 'https://zalo.me/0921112223',
   });
   customerDefs.push({
     key: 'dup_b',
@@ -438,7 +441,8 @@ async function main() {
     phone: '+84921112223',
     roles: ['retail_customer'],
     babies: [],
-    facebook: 'fb.com/tranthidup',
+    facebook: 'https://facebook.com/tranthidup',
+    zalo: 'https://zalo.me/0921112223',
   });
 
   // Khách VỪA LẺ VỪA SỈ (CUS-03 / UAT-15/23) — 2 vai
@@ -497,6 +501,7 @@ async function main() {
         fullName: def.kvName,
         displayName: def.kvName,
         facebook: def.facebook ?? null,
+        zalo: def.zalo ?? null,
         careAddress: `Số ${idx} Đường Demo, Phường ${idx}, Quận ${((idx % 12) + 1)}, TP.HCM`,
       },
     });
@@ -755,15 +760,18 @@ async function main() {
     name: string;
     contactKey: string; // wholesale customer key làm nguoi_dat_hang
     pattern: 'active_due' | 'slow' | 'at_risk' | 'collecting' | 'paused' | 'shrinking';
+    // Kênh liên hệ MXH minh họa (đã ở dạng https chuẩn hóa — seed ghi thẳng DB, không qua normalize).
+    facebook?: string;
+    zalo?: string;
   }
   const orgDefs: OrgDef[] = [
-    { key: 'org_1', name: 'Đại lý Mẹ Bé Minh Anh', contactKey: 'si_0', pattern: 'active_due' },
-    { key: 'org_2', name: 'Đại lý Bé Khỏe Quận 7', contactKey: 'si_1', pattern: 'slow' },
-    { key: 'org_3', name: 'Đại lý Yêu Con Thủ Đức', contactKey: 'si_2', pattern: 'at_risk' },
+    { key: 'org_1', name: 'Đại lý Mẹ Bé Minh Anh', contactKey: 'si_0', pattern: 'active_due', facebook: 'https://facebook.com/dailymebeminhanh', zalo: 'https://zalo.me/0966100001' },
+    { key: 'org_2', name: 'Đại lý Bé Khỏe Quận 7', contactKey: 'si_1', pattern: 'slow', zalo: 'https://zalo.me/0966200001' },
+    { key: 'org_3', name: 'Đại lý Yêu Con Thủ Đức', contactKey: 'si_2', pattern: 'at_risk', facebook: 'https://facebook.com/dailyyeuconthuduc', zalo: 'https://zalo.me/0977700002' },
     { key: 'org_4', name: 'Đại lý Mới Gò Vấp', contactKey: 'si_3', pattern: 'collecting' },
     { key: 'org_5', name: 'Đại lý Nghỉ Tết Bình Thạnh', contactKey: 'si_4', pattern: 'paused' },
-    { key: 'org_6', name: 'Đại lý Đang Teo Tân Bình', contactKey: 'si_5', pattern: 'shrinking' },
-    { key: 'org_7', name: 'Đại lý At-Risk VIP Quận 1', contactKey: 'si_6', pattern: 'at_risk' },
+    { key: 'org_6', name: 'Đại lý Đang Teo Tân Bình', contactKey: 'si_5', pattern: 'shrinking', facebook: 'https://facebook.com/dailydangteotanbinh' },
+    { key: 'org_7', name: 'Đại lý At-Risk VIP Quận 1', contactKey: 'si_6', pattern: 'at_risk', facebook: 'https://facebook.com/dailyatriskvipq1', zalo: 'https://zalo.me/0966700001' },
   ];
 
   const rtByKey = new Map(runtime.map((r) => [r.def.key, r]));
@@ -774,6 +782,8 @@ async function main() {
       data: {
         id: od.key,
         orgName: od.name,
+        facebook: od.facebook ?? null,
+        zalo: od.zalo ?? null,
         province: 'TP.HCM',
         district: 'Quận Demo',
         paused: od.pattern === 'paused',

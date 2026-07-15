@@ -3,8 +3,13 @@
 // 🔴 RPT-05 lý do đại lý CHỈ reasonStatus=confirmed. Metric: KHÔNG gọi "LTV" → "Doanh thu tích lũy".
 import { Router } from 'express';
 import { prisma } from '../../lib/prisma';
-import { asyncHandler } from '../../lib/http';
+import { asyncHandler, forbidden } from '../../lib/http';
 import { requireAuth, requirePermission } from '../../middleware/auth';
+import {
+  visibleCustomerWhere,
+  visibleCustomerRelationWhere,
+  allocationBabyWholesaleWhere,
+} from '../../security/customerVisibility';
 import { computeUplift, countDistinctRepurchaseCustomers } from '../../engines/experiment';
 import { diffDaysVn } from '../../lib/datetime';
 
@@ -17,7 +22,13 @@ reportsRouter.use(requireAuth);
 reportsRouter.get(
   '/data-quality',
   requirePermission('viewBaby'),
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    // 🔴 BẤT BIẾN #6: viewBaby nhưng thiếu viewOrganization ⇒ số liệu tổng hợp KHÔNG tính khách sỉ + bé của họ.
+    // Các count phân bổ dưới lọc khách sỉ qua allocationBabyWholesaleWhere (bé xác nhận/gợi ý thuộc khách sỉ),
+    // spread như các predicate visibleCustomer* khác trong file (predicate chỉ đóng góp key NOT, không đè
+    // assignmentStatus). GIỚI HẠN: allocation khách-sỉ CHỈ nhận qua KV identity (không có bé) vẫn KHÔNG lọc
+    // được — kv_* là mirror không FK sang customer; các count này là số đếm TỔNG, chấp nhận sai lệch phần này.
+    const perms = req.permissions!;
     const [
       productsNoApproved,
       allocationsUnknown,
@@ -30,14 +41,14 @@ reportsRouter.get(
       customersNoBaby,
     ] = await Promise.all([
       prisma.kvProduct.count({ where: { kvDeleted: false, crmMeta: { is: { approvedCycleDays: null } } } }),
-      prisma.invoiceItemBabyAllocation.count({ where: { assignmentStatus: 'suggested' } }),
-      prisma.babyProfile.count({ where: { deletedAt: null, birthDate: null, ageMonthsAtRecording: null } }),
-      prisma.customerCrm.count({ where: { deletedAt: null, consents: { none: {} } } }),
-      prisma.invoiceItemBabyAllocation.count({ where: { assignmentStatus: { in: ['confirmed', 'auto_assigned'] } } }),
-      prisma.invoiceItemBabyAllocation.count({ where: { assignmentStatus: 'suggested' } }),
-      prisma.invoiceItemBabyAllocation.count({ where: { assignmentStatus: 'customer_level' } }),
-      prisma.invoiceItemBabyAllocation.count(),
-      prisma.customerCrm.count({ where: { deletedAt: null, babies: { none: { deletedAt: null } } } }),
+      prisma.invoiceItemBabyAllocation.count({ where: { assignmentStatus: 'suggested', ...allocationBabyWholesaleWhere(perms) } }),
+      prisma.babyProfile.count({ where: { deletedAt: null, birthDate: null, ageMonthsAtRecording: null, customer: visibleCustomerRelationWhere(perms) } }),
+      prisma.customerCrm.count({ where: { deletedAt: null, consents: { none: {} }, ...visibleCustomerWhere(perms) } }),
+      prisma.invoiceItemBabyAllocation.count({ where: { assignmentStatus: { in: ['confirmed', 'auto_assigned'] }, ...allocationBabyWholesaleWhere(perms) } }),
+      prisma.invoiceItemBabyAllocation.count({ where: { assignmentStatus: 'suggested', ...allocationBabyWholesaleWhere(perms) } }),
+      prisma.invoiceItemBabyAllocation.count({ where: { assignmentStatus: 'customer_level', ...allocationBabyWholesaleWhere(perms) } }),
+      prisma.invoiceItemBabyAllocation.count({ where: allocationBabyWholesaleWhere(perms) }),
+      prisma.customerCrm.count({ where: { deletedAt: null, babies: { none: { deletedAt: null } }, ...visibleCustomerWhere(perms) } }),
     ]);
     const pct = (n: number) => (allocTotal > 0 ? Math.round((n / allocTotal) * 1000) / 10 : 0);
     res.json({
@@ -58,8 +69,11 @@ reportsRouter.get(
 );
 
 // GET /api/reports/agency-reasons — 🔴 RPT-05: chỉ reasonStatus=confirmed (loại "chưa xác định")
+// 🔴 BẤT BIẾN #6: đây là dữ liệu ĐẠI LÝ ⇒ gate viewOrganization. User bị tắt quyền xem đại lý
+// KHÔNG được xem cả thống kê lý do ngừng nhập của đại lý (enforce SERVER-SIDE, không chỉ ẩn nav).
 reportsRouter.get(
   '/agency-reasons',
+  requirePermission('viewOrganization'),
   asyncHandler(async (_req, res) => {
     const rows = await prisma.organization.groupBy({
       by: ['declineReason'],
@@ -78,13 +92,26 @@ reportsRouter.get(
 reportsRouter.get(
   '/repurchase',
   requirePermission('viewBaby'),
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    // 🔴 BẤT BIẾN #6: viewBaby nhưng thiếu viewOrganization ⇒ tỷ lệ mua lại KHÔNG tính follow-up của KHÁCH SỈ.
+    // Áp CÓ ĐIỀU KIỆN (follow_up.customer NULLABLE) để không loại nhầm dòng customer=null với user đủ quyền.
+    const perms = req.permissions!;
     const [conversions, totalConsumptionFollowUps] = await Promise.all([
       prisma.followUpConversion.findMany({
-        where: { verificationStatus: 'verified' },
+        where: {
+          verificationStatus: 'verified',
+          ...(perms.viewOrganization
+            ? {}
+            : { followUp: { customer: visibleCustomerRelationWhere(perms) } }),
+        },
         include: { followUp: { select: { reminderType: true, dueDate: true } } },
       }),
-      prisma.followUp.count({ where: { reminderType: 'consumption' } }),
+      prisma.followUp.count({
+        where: {
+          reminderType: 'consumption',
+          ...(perms.viewOrganization ? {} : { customer: visibleCustomerRelationWhere(perms) }),
+        },
+      }),
     ]);
 
     const verified = conversions.length;
@@ -122,7 +149,12 @@ reportsRouter.get(
 // 🔴 Chưa đủ mẫu ⇒ KHÔNG kết luận + trạng thái + khoảng tin cậy.
 reportsRouter.get(
   '/incremental-uplift',
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    // 🔴 BÁO CÁO tác động thí nghiệm CHỈ chủ shop xem (số liệu holdout/uplift nhạy cảm chiến lược).
+    // Enforce SERVER-SIDE, không chỉ ẩn section ở client.
+    if (req.auth!.role !== 'chu_shop') {
+      throw forbidden('Chỉ chủ shop xem được báo cáo tác động thí nghiệm.');
+    }
     // Thí nghiệm đang chạy (mới nhất). Không có ⇒ collecting.
     const experiment = await prisma.experiment.findFirst({
       where: { status: 'running' },

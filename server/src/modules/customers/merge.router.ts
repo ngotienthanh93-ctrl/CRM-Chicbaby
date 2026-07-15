@@ -2,12 +2,13 @@
 // 🔴 Nguyên tắc #7: KHÔNG tự động gộp; CHỈ Chủ shop duyệt + nhập lại mật khẩu. KHÔNG gợi ý theo tên.
 import { Router } from 'express';
 import { z } from 'zod';
-import { Prisma } from '@prisma/client';
+import { Prisma, CustomerRoleType } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { asyncHandler, badRequest, conflict, notFound } from '../../lib/http';
 import { requireAuth, requirePermission } from '../../middleware/auth';
 import { writeAudit } from '../../security/audit';
 import { maskPhone } from '../../security/masking';
+import { assertCustomerVisible, visibleCustomerWhere } from '../../security/customerVisibility';
 import { verifyReauth } from '../../security/reauth';
 import { formatVnDateTime } from '../../lib/datetime';
 import { DEFAULT_ENGINE_CONFIG } from '../../lib/config';
@@ -33,8 +34,9 @@ mergeRouter.get(
   '/dedup-candidates',
   asyncHandler(async (req, res) => {
     const perms = req.permissions!;
+    // 🔴 BẤT BIẾN #6: user thiếu viewOrganization KHÔNG thấy khách sỉ trong danh sách nghi trùng ⇒ loại từ nguồn.
     const customers = await prisma.customerCrm.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, ...visibleCustomerWhere(perms) },
       include: { phones: true },
     });
     const cands: MergeCandidateCustomer[] = customers.map((c) => ({
@@ -140,6 +142,11 @@ mergeRouter.post(
     if (!parsed.success) throw badRequest('Cần chọn khách GIỮ (master) và khách gộp vào.');
     if (parsed.data.masterId === parsed.data.mergedId)
       throw badRequest('Không thể gộp một khách với chính nó.');
+    // 🔴 BẤT BIẾN #6: manageCustomer nhưng thiếu viewOrganization (cskh/crm_officer bị hạ quyền) KHÔNG
+    // được preview gộp khi bất kỳ phía nào là KHÁCH SỈ. 404 KHỚP message not-found (không lộ tồn tại).
+    const perms = req.permissions!;
+    await assertCustomerVisible(parsed.data.masterId, perms, 'Không tìm thấy khách hàng để gộp.');
+    await assertCustomerVisible(parsed.data.mergedId, perms, 'Không tìm thấy khách hàng để gộp.');
     const [master, merged] = await Promise.all([
       loadSide(parsed.data.masterId),
       loadSide(parsed.data.mergedId),
@@ -166,6 +173,11 @@ mergeRouter.post(
       throw badRequest('Không thể gộp một khách với chính nó.');
     // 🔴 xác minh lại mật khẩu chủ shop — CÓ chống brute-force (CWE-307: khóa userId+IP, audit lần sai).
     await verifyReauth(req.auth!.userId, parsed.data.password, req.ip);
+
+    // 🔴 BẤT BIẾN #6 (phòng thủ chiều sâu): chặn gộp khi phía nào là KHÁCH SỈ mà thiếu viewOrganization.
+    // (approveMerge chỉ chu_shop ⇒ luôn viewOrganization=true ⇒ vô hại; giữ nếu ma trận quyền đổi sau.)
+    await assertCustomerVisible(parsed.data.masterId, req.permissions!);
+    await assertCustomerVisible(parsed.data.mergedId, req.permissions!);
 
     const { masterId, mergedId } = parsed.data;
     const now = new Date();
@@ -198,9 +210,13 @@ mergeRouter.post(
       await tx.followUp.updateMany({ where: { customerId: mergedId }, data: { customerId: masterId } });
       await tx.reminderSource.updateMany({ where: { customerId: mergedId }, data: { customerId: masterId } });
 
+      // 🔴 Snapshot vai của khách BỊ GỘP TRƯỚC khi moveDedup chuyển vai sang master (lúc mergedId còn nguyên
+      //    vai) — để unmerge sau này khôi phục ĐÚNG vai (đặc biệt wholesale_contact). Lưu vào mergeHistory bên dưới.
+      const mergedRoleRows = await tx.customerRole.findMany({ where: { customerId: mergedId } });
+      const mergedRolesSnapshot: string[] = mergedRoleRows.map((r) => r.role);
       // Vai (unique customerId+role): dedupe khi chuyển.
       await moveDedup(
-        tx.customerRole.findMany({ where: { customerId: mergedId } }),
+        Promise.resolve(mergedRoleRows),
         (row) => tx.customerRole.findFirst({ where: { customerId: masterId, role: row.role } }),
         (id) => tx.customerRole.update({ where: { id }, data: { customerId: masterId } }),
         (id) => tx.customerRole.delete({ where: { id } }),
@@ -268,7 +284,15 @@ mergeRouter.post(
       // Khách bị gộp ĐÃ soft-delete ở guard nguyên tử phía trên (MERGE-07 giữ nguồn, KHÔNG xóa cứng).
       // mergeHistory CHỈ ghi khi guard qua ⇒ đảm bảo không sinh lịch sử gộp trùng.
       await tx.mergeHistory.create({
-        data: { masterId, mergedId, mergedBy: req.auth!.userId, mergedAt: now, revertible: true },
+        data: {
+          masterId,
+          mergedId,
+          mergedBy: req.auth!.userId,
+          mergedAt: now,
+          revertible: true,
+          // Snapshot vai khách bị gộp (mảng role string) ⇒ unmerge khôi phục đúng vai. Mảng rỗng nếu không có vai.
+          mergedRoles: mergedRolesSnapshot,
+        },
       });
     });
 
@@ -305,6 +329,11 @@ mergeRouter.post(
     });
     if (!history) throw notFound('Không tìm thấy lịch sử gộp cho khách này.');
 
+    // 🔴 BẤT BIẾN #6 (phòng thủ chiều sâu): không tách khách sỉ nếu thiếu viewOrganization.
+    // (approveMerge chỉ chu_shop ⇒ vô hại; message khớp not-found ở trên để không lộ tồn tại.)
+    await assertCustomerVisible(history.masterId, req.permissions!, 'Không tìm thấy lịch sử gộp cho khách này.');
+    await assertCustomerVisible(history.mergedId, req.permissions!, 'Không tìm thấy lịch sử gộp cho khách này.');
+
     // Mốc dữ liệu mới nhất gắn với master SAU khi gộp (follow-up/tư vấn/consent/bé/nhắc).
     const newestDataAt = await newestDataAfterMerge(history.masterId);
     if (!canUnmerge(history.mergedAt, newestDataAt)) {
@@ -332,12 +361,60 @@ mergeRouter.post(
       );
     }
 
-    // Chưa phát sinh dữ liệu mới => cho tách bản gọn: khôi phục khách bị gộp (bỏ soft-delete) + đánh dấu lịch sử.
+    // 🔴 BẤT BIẾN #6 — khôi phục vai khi tách (ISSUE-1, fix CHUẨN):
+    //  - Gộp MỚI đã snapshot vai của khách bị gộp (mergedRoles != null, kể cả mảng rỗng) ⇒ tự tách AN TOÀN cho
+    //    MỌI loại khách (gồm khách sỉ): khôi phục vai từ snapshot bên dưới ⇒ KHÔNG còn ép ticket oan.
+    //  - Gộp CŨ trước migration (mergedRoles == null) ⇒ không thể khôi phục vai an toàn: GIỮ mitigation — nếu
+    //    master ĐANG mang wholesale_contact (lần gộp liên quan khách sỉ) thì định tuyến ticket xử lý tay để
+    //    tránh khách sỉ hồi sinh MẤT vai và lộ với user thiếu viewOrganization. Vai bán lẻ cũ vẫn tự tách như trước.
+    const roleSnapshot = history.mergedRoles; // Prisma.JsonValue | null
+    const hasRoleSnapshot = roleSnapshot !== null; // null ⇒ lịch sử gộp cũ (trước migration)
+    if (!hasRoleSnapshot) {
+      const masterRoles = await prisma.customerRole.findMany({
+        where: { customerId: history.masterId },
+        select: { role: true },
+      });
+      if (masterRoles.some((r) => r.role === 'wholesale_contact')) {
+        const ticket = await prisma.mergeUnmergeTicket.create({
+          data: {
+            mergeHistoryId: history.id,
+            masterId: history.masterId,
+            mergedId: history.mergedId,
+            reason:
+              parsed.data.reason ??
+              'Lần gộp CŨ (chưa snapshot vai) liên quan KHÁCH SỈ — cần xử lý tay để khôi phục đúng vai wholesale_contact khi tách.',
+            requestedBy: req.auth!.userId,
+          },
+        });
+        await writeAudit({
+          userId: req.auth!.userId,
+          action: 'customer.unmerge_ticket',
+          objectType: 'customer',
+          objectId: history.masterId,
+          newValue: { ticketId: ticket.id, mergedId: history.mergedId, reason: 'wholesale' },
+        });
+        throw conflict(
+          `Lần gộp liên quan khách sỉ (lịch sử cũ chưa lưu vai) — không thể tự tách để tránh mất vai. Đã tạo ticket xử lý tay #${ticket.id}.`,
+        );
+      }
+    }
+
+    // Chưa phát sinh dữ liệu mới => cho tách: khôi phục khách bị gộp (bỏ soft-delete) + khôi phục vai từ snapshot.
+    const rolesToRestore = parseSnapshotRoles(roleSnapshot);
     await prisma.$transaction(async (tx) => {
       await tx.customerCrm.update({
         where: { id: history.mergedId },
         data: { deletedAt: null, retentionStatus: 'active' },
       });
+      // 🔴 Khôi phục vai khách bị gộp từ snapshot (gồm wholesale_contact). skipDuplicates phòng trùng do
+      //    unique [customerId, role]. KHÔNG xóa vai khỏi master (bảo thủ: master giữ union, tránh gỡ nhầm vai
+      //    vốn có của master). Snapshot null/rỗng ⇒ không có vai để khôi phục (fallback đã chặn khách sỉ ở trên).
+      if (rolesToRestore.length > 0) {
+        await tx.customerRole.createMany({
+          data: rolesToRestore.map((role) => ({ customerId: history.mergedId, role })),
+          skipDuplicates: true,
+        });
+      }
       await tx.mergeHistory.update({ where: { id: history.id }, data: { revertible: false } });
     });
     await writeAudit({
@@ -345,18 +422,33 @@ mergeRouter.post(
       action: 'customer.unmerge',
       objectType: 'customer',
       objectId: history.masterId,
-      newValue: { mergedId: history.mergedId },
+      newValue: { mergedId: history.mergedId, restoredRoles: rolesToRestore },
       reason: 'Tách khách (chưa phát sinh dữ liệu mới sau gộp)',
     });
     res.json({
       ok: true,
-      note: 'Đã khôi phục khách bị gộp. Lưu ý (bản gọn GĐ2): FK đã chuyển sang master KHÔNG tự động trả lại — chỉ khôi phục hồ sơ khách; trường hợp phức tạp dùng ticket.',
+      note: 'Đã khôi phục khách bị gộp cùng vai (nếu có snapshot). Lưu ý: FK khác (bé/tư vấn/consent/nhắc) đã chuyển sang master KHÔNG tự động trả lại — trường hợp phức tạp dùng ticket.',
+      restoredRoles: rolesToRestore,
       mergedAt: formatVnDateTime(history.mergedAt),
     });
   }),
 );
 
 // ---------- helpers ----------
+
+// Tập vai hợp lệ lấy TỪ enum Prisma (không hard-code, tự đồng bộ nếu enum đổi).
+const VALID_CUSTOMER_ROLES = new Set<string>(Object.values(CustomerRoleType));
+
+/**
+ * Đọc snapshot vai (MergeHistory.mergedRoles) an toàn từ Json: chỉ giữ phần tử là CHUỖI khớp enum
+ * CustomerRoleType (lọc dữ liệu rác/JSON lạ). Không phải mảng (null/object/…) ⇒ trả [].
+ */
+export function parseSnapshotRoles(value: Prisma.JsonValue | null): CustomerRoleType[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (v): v is CustomerRoleType => typeof v === 'string' && VALID_CUSTOMER_ROLES.has(v),
+  );
+}
 
 /** Chuyển các dòng con sang master, bỏ dòng trùng (theo unique) để không vi phạm ràng buộc. */
 async function moveDedup<T extends { id: string }>(

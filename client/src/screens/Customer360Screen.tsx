@@ -1,14 +1,29 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Phone, Eye, ShieldCheck, Plus, Pencil, MessageSquarePlus } from 'lucide-react';
-import { api } from '../api/client';
+import {
+  ArrowLeft,
+  Phone,
+  Eye,
+  ShieldCheck,
+  Plus,
+  Pencil,
+  MessageSquarePlus,
+  Facebook,
+  MessageCircle,
+  ExternalLink,
+  Check,
+  X,
+} from 'lucide-react';
+import { api, ApiError } from '../api/client';
 import type {
   Consultation,
   ConsentEvent,
   CustomerDetail,
+  FollowUpAttachmentBrief,
   PurchasesResponse,
 } from '../api/types';
 import { useApi } from '../hooks/useApi';
+import { isSafeHttpUrl } from '../lib/url';
 import { useAuth } from '../app/AuthContext';
 import { useToast } from '../components/Toast';
 import { Badge, EmptyState, ErrorState, KvBadge, SkeletonCards } from '../components/ui';
@@ -78,7 +93,7 @@ export function Customer360Screen() {
           </div>
 
           <div className="tab-panel">
-            {activeTab === 'info' && <InfoTab detail={state.data} />}
+            {activeTab === 'info' && <InfoTab detail={state.data} onSaved={state.reload} />}
             {activeTab === 'babies' && canBaby && <BabyTab customerId={id} />}
             {activeTab === 'consultations' && canConsult && <ConsultationsTab customerId={id} />}
             {activeTab === 'purchases' && <PurchasesTab customerId={id} />}
@@ -187,7 +202,7 @@ function roleLabel(roles: string[]): string {
   return 'Chưa phân loại';
 }
 
-function InfoTab({ detail }: { detail: CustomerDetail }) {
+function InfoTab({ detail, onSaved }: { detail: CustomerDetail; onSaved: () => void }) {
   return (
     <div className="stack-4">
       <div className="card card-pad">
@@ -227,12 +242,160 @@ function InfoTab({ detail }: { detail: CustomerDetail }) {
         <p className="caption">Số điện thoại là dữ liệu nguồn KiotViet, chỉ đọc trong CRM.</p>
       </div>
 
+      <ContactChannelsCard detail={detail} onSaved={onSaved} />
+
       {detail.note && (
         <div className="card card-pad">
           <h3 className="h3" style={{ marginBottom: 8 }}>
             Ghi chú CRM
           </h3>
           <p className="wrap-anywhere">{detail.note}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SocialLinkView({
+  label,
+  channel,
+  url,
+  icon: Icon,
+}: {
+  label: string;
+  channel: string;
+  url: string | null;
+  icon: typeof Facebook;
+}) {
+  return (
+    <div className="info-item">
+      <span className="label">{label}</span>
+      {isSafeHttpUrl(url) ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn btn-outline btn-sm"
+          style={{ alignSelf: 'flex-start' }}
+        >
+          <Icon size={15} aria-hidden />
+          Nhắn tin {channel}
+          <ExternalLink size={13} aria-hidden />
+        </a>
+      ) : url ? (
+        // Link không phải http(s) (bất thường) => hiện text thường, KHÔNG tạo href.
+        <span className="value wrap-anywhere">{url}</span>
+      ) : (
+        <span className="value muted">Chưa có</span>
+      )}
+    </div>
+  );
+}
+
+function ContactChannelsCard({
+  detail,
+  onSaved,
+}: {
+  detail: CustomerDetail;
+  onSaved: () => void;
+}) {
+  const { permissions } = useAuth();
+  const toast = useToast();
+  const canManage = permissions?.manageCustomer ?? false;
+  const [editing, setEditing] = useState(false);
+  const [fb, setFb] = useState('');
+  const [zalo, setZalo] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = () => {
+    setFb(detail.facebook ?? '');
+    setZalo(detail.zalo ?? '');
+    setEditing(true);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put(`/api/customers/${detail.id}/social-links`, {
+        facebook: fb.trim(),
+        zalo: zalo.trim(),
+      });
+      toast('success', 'Đã cập nhật kênh liên hệ.');
+      setEditing(false);
+      onSaved();
+    } catch (err) {
+      // 400 (link sai) / 403 (thiếu quyền) => hiện đúng thông điệp từ server.
+      toast('error', err instanceof ApiError ? err.message : 'Không lưu được kênh liên hệ.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="card card-pad stack-2">
+      <div className="between">
+        <h3 className="h3">Kênh liên hệ</h3>
+        {canManage && !editing && (
+          <button
+            className="btn btn-ghost btn-icon"
+            aria-label="Sửa kênh liên hệ"
+            onClick={startEdit}
+          >
+            <Pencil size={15} aria-hidden />
+          </button>
+        )}
+      </div>
+
+      {editing ? (
+        <div className="stack-2">
+          <div className="field">
+            <label className="label" htmlFor="cust-fb">
+              Facebook
+            </label>
+            <input
+              id="cust-fb"
+              className="input"
+              value={fb}
+              onChange={(e) => setFb(e.target.value)}
+              placeholder="facebook.com/… hoặc tên trang"
+              autoComplete="off"
+            />
+          </div>
+          <div className="field">
+            <label className="label" htmlFor="cust-zalo">
+              Zalo
+            </label>
+            <input
+              id="cust-zalo"
+              className="input"
+              value={zalo}
+              onChange={(e) => setZalo(e.target.value)}
+              placeholder="zalo.me/… hoặc số điện thoại"
+              autoComplete="off"
+            />
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
+              <Check size={15} aria-hidden />
+              Lưu
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setEditing(false)}
+              disabled={saving}
+            >
+              <X size={15} aria-hidden />
+              Hủy
+            </button>
+          </div>
+          <p className="caption">
+            Để trống rồi Lưu để gỡ liên kết. Chỉ nhận liên kết Facebook / Zalo.
+          </p>
+        </div>
+      ) : (
+        <div className="info-grid">
+          <SocialLinkView label="Facebook" channel="Facebook" url={detail.facebook} icon={Facebook} />
+          <SocialLinkView label="Zalo" channel="Zalo" url={detail.zalo} icon={MessageCircle} />
         </div>
       )}
     </div>
@@ -404,8 +567,20 @@ function PurchasesTab({ customerId }: { customerId: string }) {
   );
 }
 
+interface CareFollowUp {
+  id: string;
+  reminderType: string;
+  status: string;
+  dueDate: string;
+  content: string | null;
+  // Chỉ vai processWork nhận mảng có phần tử; vai khác => [].
+  attachments: FollowUpAttachmentBrief[];
+}
+
 function CareTab({ customerId }: { customerId: string }) {
-  const state = useApi<{ items: { id: string; reminderType: string; status: string; dueDate: string; content: string | null }[] }>(
+  const { permissions } = useAuth();
+  const canSeeEvidence = permissions?.processWork ?? false;
+  const state = useApi<{ items: CareFollowUp[] }>(
     () => api.get(`/api/customers/${customerId}/followups`),
     [customerId],
   );
@@ -424,6 +599,26 @@ function CareTab({ customerId }: { customerId: string }) {
             <span className="caption">Đến hạn {f.dueDate}</span>
           </div>
           {f.content && <p className="small wrap-anywhere">{f.content}</p>}
+          {/* 🔴 Ảnh bằng chứng chỉ hiện cho vai xử lý việc (Marketing không thấy — server cũng trả []). */}
+          {canSeeEvidence && f.attachments.length > 0 && (
+            <div className="row-wrap" style={{ gap: 8 }}>
+              {f.attachments.map((a) => (
+                <a
+                  key={a.id}
+                  href={a.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`${a.uploadedByName ?? 'Không rõ'} · ${a.createdAt}`}
+                >
+                  <img
+                    src={a.url}
+                    alt={`Ảnh bằng chứng — ${a.uploadedByName ?? 'không rõ'}`}
+                    style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, display: 'block' }}
+                  />
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       ))}
     </div>

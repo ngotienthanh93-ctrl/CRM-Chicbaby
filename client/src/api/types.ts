@@ -77,6 +77,9 @@ export interface WorkCard {
   targetName: string;
   phone: string | null;
   phoneOf: string | null;
+  // Kênh liên hệ MXH (CRM-owned) để hiển thị nút Zalo/Facebook trên card.
+  facebook: string | null;
+  zalo: string | null;
   content: string;
   dueDate: string;
   overdue: boolean;
@@ -96,6 +99,52 @@ export interface WorkTodayResponse {
   updatedAt: string;
   kpi: { atRisk: number; overdue: number; needCall: number; doneToday: number };
   items: WorkCard[];
+}
+
+// ---- Trung tâm thông báo hoạt động nhân viên (chỉ Chủ shop) ----
+/** Một dòng hoạt động nhân viên (GET /api/notifications). Server đã format summary + resolve targetName. */
+export interface NotificationItem {
+  id: string;
+  /** Tên nhân viên đã thực hiện thao tác. */
+  actorName: string;
+  /** Cụm mô tả tiếng Việt đã format ở server (KHÔNG lộ action/objectType thô hay dữ liệu thô). */
+  summary: string;
+  /** Tên khách/đại lý liên quan (null nếu không xác định/không áp dụng). */
+  targetName: string | null;
+  createdAt: string;
+  isUnread: boolean;
+  /** Id việc cần làm liên quan (chỉ khác null khi thông báo gắn với follow-up). */
+  followUpId: string | null;
+  /** Số ảnh bằng chứng chưa xóa của việc — dùng để hiện affordance "xem ảnh" và khóa bấm khi = 0. */
+  attachmentCount: number;
+}
+export interface NotificationsResponse {
+  unreadCount: number;
+  /** Watermark: mốc server chạy query — gửi lại làm `readUntil` khi đánh dấu đã đọc. */
+  asOf: string;
+  items: NotificationItem[];
+}
+export interface UnreadCountResponse {
+  unreadCount: number;
+}
+
+/** Ảnh bằng chứng liên hệ (metadata; bytes stream qua `url` riêng). GET /api/followups/:id/attachments */
+export interface FollowUpEvidence {
+  id: string;
+  url: string;
+  uploadedBy: string;
+  uploadedByName: string | null;
+  caption: string | null;
+  createdAt: string;
+  sizeBytes: number;
+}
+
+/** Ảnh bằng chứng rút gọn kèm mỗi followup ở tab Chăm sóc (chỉ vai processWork nhận). */
+export interface FollowUpAttachmentBrief {
+  id: string;
+  url: string;
+  uploadedByName: string | null;
+  createdAt: string;
 }
 
 // ---- SCR-03 / SCR-04 Khách ----
@@ -137,6 +186,8 @@ export interface CustomerDetail {
   displayName: string;
   retentionStatus: string;
   preferredChannel: string | null;
+  facebook: string | null;
+  zalo: string | null;
   note: string | null;
   phones: CustomerPhone[];
   roles: string[];
@@ -284,6 +335,8 @@ export interface OrgSummary {
 export interface OrgDetail {
   id: string;
   orgName: string;
+  facebook: string | null;
+  zalo: string | null;
   status: string;
   province: string | null;
   district: string | null;
