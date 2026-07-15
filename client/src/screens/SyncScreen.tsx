@@ -7,6 +7,8 @@ import {
   CheckCircle2,
   CircleAlert,
   Clock,
+  KeyRound,
+  PlugZap,
 } from 'lucide-react';
 import { api } from '../api/client';
 import type {
@@ -14,6 +16,8 @@ import type {
   SyncReconResponse,
   SyncStatusResponse,
   SyncWebhooksResponse,
+  SyncPublicApiCredsStatus,
+  SyncTestConnectionResult,
 } from '../api/types';
 import { useApi } from '../hooks/useApi';
 import { useAuth } from '../app/AuthContext';
@@ -21,7 +25,7 @@ import { useToast } from '../components/Toast';
 import { Modal } from '../components/Modal';
 import { Badge, EmptyState, ErrorState, SkeletonCards } from '../components/ui';
 
-type TabKey = 'status' | 'queue' | 'reconciliation' | 'webhooks';
+type TabKey = 'connection' | 'status' | 'queue' | 'reconciliation' | 'webhooks';
 
 // SLO độ trễ webhook: p95 ≤ 5 phút (SYNC / NFR).
 const WEBHOOK_SLO_MS = 5 * 60 * 1000;
@@ -29,7 +33,7 @@ const WEBHOOK_SLO_MS = 5 * 60 * 1000;
 export function SyncScreen() {
   const { permissions } = useAuth();
   const isOwner = permissions?.role === 'chu_shop';
-  const [tab, setTab] = useState<TabKey>('status');
+  const [tab, setTab] = useState<TabKey>('connection');
   const [resync, setResync] = useState(false);
 
   const status = useApi<SyncStatusResponse>(() => api.get('/api/sync/status'), []);
@@ -65,6 +69,7 @@ export function SyncScreen() {
       <div className="tabs" role="tablist">
         {(
           [
+            ['connection', 'Kết nối'],
             ['status', 'Trạng thái'],
             ['queue', 'Hàng đợi'],
             ['reconciliation', 'Đối soát'],
@@ -84,6 +89,7 @@ export function SyncScreen() {
       </div>
 
       <div className="tab-panel">
+        {tab === 'connection' && <ConnectionTab isOwner={isOwner} />}
         {tab === 'status' && <StatusTab state={status} />}
         {tab === 'queue' && <QueueTab state={queue} />}
         {tab === 'reconciliation' && <ReconTab state={recon} />}
@@ -372,6 +378,244 @@ function WebhookTab({ state }: { state: ReturnType<typeof useApi<SyncWebhooksRes
         <p className="caption">Có webhook không hoạt động — đăng ký lại để nhận sự kiện realtime.</p>
       )}
     </div>
+  );
+}
+
+/* ---------- Kết nối KiotViet Public API (pull) — KV-01/02 ---------- */
+function ConnectionTab({ isOwner }: { isOwner: boolean }) {
+  const toast = useToast();
+  const creds = useApi<SyncPublicApiCredsStatus>(
+    () => api.get('/api/sync/public-api-credentials'),
+    [],
+  );
+  const [editing, setEditing] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<SyncTestConnectionResult | null>(null);
+
+  if (creds.status === 'loading') return <SkeletonCards count={2} />;
+  if (creds.status === 'error') return <ErrorState error={creds.error} onRetry={creds.reload} />;
+  const d = creds.data;
+
+  const test = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await api.post<SyncTestConnectionResult>('/api/sync/public-api/test-connection');
+      setTestResult(r);
+      if (r.tokenOk && r.apiOk) toast('success', 'Kết nối KiotViet thành công.');
+      else toast('error', r.error ?? 'Kết nối chưa thành công.');
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Không kiểm tra được kết nối.');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="stack-4">
+      <div className={`notice ${d.configured ? 'notice-success' : 'notice-warning'}`}>
+        {d.configured ? <CheckCircle2 size={16} aria-hidden /> : <CircleAlert size={16} aria-hidden />}
+        <span className="small">
+          {d.configured
+            ? 'Đã cấu hình credential KiotViet Public API. Bấm "Kiểm tra kết nối" để xác nhận còn hiệu lực.'
+            : 'Chưa cấu hình kết nối KiotViet. Nhập Client ID / Client Secret / Tên shop để bắt đầu đồng bộ.'}
+        </span>
+      </div>
+
+      <div className="card card-pad stack-3">
+        <div className="between" style={{ flexWrap: 'wrap', gap: 8 }}>
+          <div className="row" style={{ gap: 8 }}>
+            <KeyRound size={16} aria-hidden className="muted" />
+            <b>Kết nối Public API (pull)</b>
+          </div>
+          {d.configured ? (
+            <Badge tone="success" icon={false}>Đã cấu hình</Badge>
+          ) : (
+            <Badge tone="danger" icon={false}>Chưa cấu hình</Badge>
+          )}
+        </div>
+        <div className="stack-2">
+          <div className="between">
+            <span className="muted small">Tên shop (Retailer)</span>
+            <span>{d.retailer ?? '—'}</span>
+          </div>
+          <div className="between">
+            <span className="muted small">Client ID</span>
+            <span className="num">{d.clientIdMasked ?? '—'}</span>
+          </div>
+        </div>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          {isOwner && (
+            <button className="btn btn-primary btn-sm" onClick={() => setEditing(true)}>
+              <KeyRound size={15} aria-hidden />
+              {d.configured ? 'Đổi credential' : 'Thiết lập kết nối'}
+            </button>
+          )}
+          <button
+            className="btn btn-outline btn-sm"
+            onClick={test}
+            disabled={testing || !d.configured}
+          >
+            <PlugZap size={15} aria-hidden />
+            {testing ? 'Đang kiểm tra…' : 'Kiểm tra kết nối'}
+          </button>
+        </div>
+        {!isOwner && (
+          <p className="caption">Chỉ Chủ shop được nhập/đổi credential. Bạn có thể kiểm tra kết nối.</p>
+        )}
+        {testResult && (
+          <div
+            className={`notice ${testResult.tokenOk && testResult.apiOk ? 'notice-success' : 'notice-warning'}`}
+          >
+            {testResult.tokenOk && testResult.apiOk ? (
+              <CheckCircle2 size={16} aria-hidden />
+            ) : (
+              <CircleAlert size={16} aria-hidden />
+            )}
+            <span className="small">
+              Xác thực token: <b>{testResult.tokenOk ? 'OK' : 'Thất bại'}</b> · Gọi API:{' '}
+              <b>{testResult.apiOk ? 'OK' : 'Thất bại'}</b>
+              {testResult.error ? ` · ${testResult.error}` : ''}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <p className="caption">
+        Lấy Client ID / Client Secret trong KiotViet: <b>Thiết lập cửa hàng → Kết nối API / Ứng dụng</b>.
+        Tên shop (Retailer) là mã cửa hàng khi đăng nhập KiotViet. Credential được mã hóa khi lưu, không
+        hiển thị lại.
+      </p>
+
+      {editing && (
+        <CredentialsModal
+          configured={d.configured}
+          onClose={() => setEditing(false)}
+          onDone={() => {
+            setEditing(false);
+            setTestResult(null);
+            creds.reload();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CredentialsModal({
+  configured,
+  onClose,
+  onDone,
+}: {
+  configured: boolean;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const toast = useToast();
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [retailer, setRetailer] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const valid =
+    clientId.trim().length > 0 &&
+    clientSecret.trim().length > 0 &&
+    retailer.trim().length > 0 &&
+    password.length > 0;
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await api.post('/api/sync/public-api-credentials', {
+        clientId: clientId.trim(),
+        clientSecret,
+        retailer: retailer.trim(),
+        password,
+      });
+      toast('success', 'Đã lưu credential KiotViet.');
+      onDone();
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Không lưu được — kiểm tra dữ liệu / mật khẩu.');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title={configured ? 'Đổi credential KiotViet' : 'Thiết lập kết nối KiotViet'}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-outline" onClick={onClose} disabled={busy}>
+            Hủy
+          </button>
+          <button className="btn btn-primary" onClick={submit} disabled={!valid || busy}>
+            {busy ? 'Đang lưu…' : 'Lưu kết nối'}
+          </button>
+        </>
+      }
+    >
+      <div className="stack-4">
+        <div className="notice notice-neutral">
+          <ShieldAlert size={16} aria-hidden />
+          <span className="small">
+            Client Secret được mã hóa khi lưu và KHÔNG hiển thị lại. Cần nhập lại mật khẩu để xác minh.
+          </span>
+        </div>
+        <div className="field">
+          <label className="label" htmlFor="kv-client-id">
+            Client ID
+          </label>
+          <input
+            id="kv-client-id"
+            className="input"
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            autoComplete="off"
+            placeholder="Từ KiotViet → Kết nối API"
+          />
+        </div>
+        <div className="field">
+          <label className="label" htmlFor="kv-client-secret">
+            Client Secret
+          </label>
+          <input
+            id="kv-client-secret"
+            className="input"
+            type="password"
+            value={clientSecret}
+            onChange={(e) => setClientSecret(e.target.value)}
+            autoComplete="off"
+          />
+        </div>
+        <div className="field">
+          <label className="label" htmlFor="kv-retailer">
+            Tên shop (Retailer)
+          </label>
+          <input
+            id="kv-retailer"
+            className="input"
+            value={retailer}
+            onChange={(e) => setRetailer(e.target.value)}
+            autoComplete="off"
+            placeholder="vd: chicbabyshop"
+          />
+        </div>
+        <div className="field">
+          <label className="label" htmlFor="kv-reauth-pw">
+            Nhập lại mật khẩu để xác minh
+          </label>
+          <input
+            id="kv-reauth-pw"
+            className="input"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+          />
+        </div>
+      </div>
+    </Modal>
   );
 }
 

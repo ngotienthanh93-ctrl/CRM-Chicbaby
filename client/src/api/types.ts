@@ -506,6 +506,18 @@ export interface SyncWebhooksResponse {
   registered: boolean;
   webhooks: SyncWebhookItem[];
 }
+// ---- KV-01/02 Public API (pull) — kết nối KiotViet ----
+export interface SyncPublicApiCredsStatus {
+  configured: boolean;
+  retailer: string | null;
+  clientIdMasked: string | null;
+}
+export interface SyncTestConnectionResult {
+  tokenOk: boolean;
+  apiOk: boolean;
+  sampleCount: number | null;
+  error: string | null;
+}
 
 // ---- SCR-16 Báo cáo ----
 export type UpliftStatus = 'collecting' | 'insufficient' | 'reference' | 'confident';
