@@ -14,6 +14,8 @@ import {
   CONFIG_GROUP_LABELS,
   getConfigItem,
   isConfigLocked,
+  isValidKiotVietUrl,
+  KIOTVIET_URL_CONFIG_KEYS,
 } from '../../lib/config';
 import {
   computeRecalcPreview,
@@ -77,6 +79,10 @@ const NUMERIC_BOUNDS: Record<string, NumericBound> = {
   'sync.processor_batch_size': { min: 1, max: 1000, integer: true },
   'sync.processor_interval_minutes': { min: 0, max: 1440, integer: true },
   'sync.initial_load_months': { min: 1, max: 120, integer: true },
+  // 🔵 KV-01 — Public API pull: trang (KiotViet trần 100); pull_enabled 0=tắt/1=bật; throttle req/phút (tránh 429).
+  'sync.page_size': { min: 1, max: 100, integer: true },
+  'sync.pull_enabled': { min: 0, max: 1, integer: true },
+  'sync.max_requests_per_minute': { min: 1, max: 600, integer: true },
   'claim.claimed_ttl_minutes': { min: 1, max: 1440, integer: true },
   'claim.in_progress_ttl_minutes': { min: 1, max: 1440, integer: true },
   'claim.heartbeat_seconds': { min: 1, max: 3600, integer: true },
@@ -88,6 +94,12 @@ const NUMERIC_BOUNDS: Record<string, NumericBound> = {
  * Chặn admin lưu giá trị vô lý (âm/0/khổng lồ/không phải số nguyên) gây hỏng lịch/tính toán (DoS vận hành).
  */
 function validateConfigValueRange(key: string, value: unknown): void {
+  // 🔴 SEC (CWE-918): key URL KiotViet phải qua allowlist (https + miền kiotviet.vn, không userinfo).
+  if (KIOTVIET_URL_CONFIG_KEYS.has(key) && !isValidKiotVietUrl(value)) {
+    throw badRequest(
+      `Tham số "${key}" phải là URL https thuộc miền kiotviet.vn (không kèm tài khoản trong URL).`,
+    );
+  }
   const bound = NUMERIC_BOUNDS[key];
   if (!bound) return; // key chuỗi/không ràng buộc: bỏ qua (assertSameKind vẫn chặn đổi kiểu).
   const n = typeof value === 'number' ? value : NaN;

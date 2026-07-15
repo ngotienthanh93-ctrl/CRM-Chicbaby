@@ -79,6 +79,13 @@ export interface EngineConfig {
     processorBatchSize: number;
     processorIntervalMinutes: number;
     webhookSignatureHeader: string;
+    // 🔵 KV-01 — Public API (pull): base REST + endpoint lấy token OAuth2; số bản ghi mỗi trang (KiotViet trần 100);
+    // công tắc bật poll tự động (0=tắt tới khi sẵn sàng); trần request/phút chủ động tránh 429.
+    publicApiBaseUrl: string;
+    tokenEndpoint: string;
+    pageSize: number;
+    pullEnabled: number;
+    maxRequestsPerMinute: number;
   };
 }
 
@@ -128,6 +135,12 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
     processorBatchSize: 50,
     processorIntervalMinutes: 1,
     webhookSignatureHeader: 'x-kiotviet-signature',
+    // 🔵 KV-01 — Public API (pull). Base/token chốt lại khi smoke; pull TẮT mặc định (bật ở SCR-14 khi có creds).
+    publicApiBaseUrl: 'https://public.kiotviet.vn',
+    tokenEndpoint: 'https://id.kiotviet.vn/connect/token',
+    pageSize: 100,
+    pullEnabled: 0,
+    maxRequestsPerMinute: 30,
   },
 };
 
@@ -198,6 +211,11 @@ export const CONFIG_CATALOGUE: ConfigCatalogueItem[] = [
   { key: 'sync.processor_batch_size', value: c.sync.processorBatchSize, group: 'sync' },
   { key: 'sync.processor_interval_minutes', value: c.sync.processorIntervalMinutes, group: 'sync' },
   { key: 'sync.webhook_signature_header', value: c.sync.webhookSignatureHeader, group: 'sync' },
+  { key: 'sync.public_api_base_url', value: c.sync.publicApiBaseUrl, group: 'sync' },
+  { key: 'sync.token_endpoint', value: c.sync.tokenEndpoint, group: 'sync' },
+  { key: 'sync.page_size', value: c.sync.pageSize, group: 'sync' },
+  { key: 'sync.pull_enabled', value: c.sync.pullEnabled, group: 'sync' },
+  { key: 'sync.max_requests_per_minute', value: c.sync.maxRequestsPerMinute, group: 'sync' },
   { key: 'dedup.merge_suggest_threshold', value: c.dedup.mergeSuggestThreshold, group: 'dedup' },
   { key: 'experiment.holdout_ratio', value: c.experiment.holdoutRatio, group: 'experiment' },
   {
@@ -231,4 +249,29 @@ export function getConfigItem(key: string): ConfigCatalogueItem | undefined {
 /** 🔴 CFG-05/REM-R-07: key khóa cứng (vd trần service_contact = ∞) — KHÔNG cho sửa/rollback. */
 export function isConfigLocked(key: string): boolean {
   return getConfigItem(key)?.locked === true;
+}
+
+/** Các key config là URL KiotViet — phải qua allowlist trước khi server-side fetch (chống SSRF/exfil). */
+export const KIOTVIET_URL_CONFIG_KEYS = new Set<string>([
+  'sync.public_api_base_url',
+  'sync.token_endpoint',
+]);
+
+/**
+ * 🔴 SEC (CWE-918 SSRF / CWE-200 exfil): URL KiotViet chỉ hợp lệ khi HTTPS + host là `kiotviet.vn` hoặc
+ * `*.kiotviet.vn` + KHÔNG kèm userinfo (user:pass@). Chặn cấu hình (dù chỉ chủ shop) trỏ token/secret/Bearer
+ * sang host lạ hay dịch vụ nội bộ. Dùng CẢ khi ghi config (chặn) LẪN khi đọc trong client (fallback DEFAULT).
+ */
+export function isValidKiotVietUrl(value: unknown): boolean {
+  if (typeof value !== 'string' || value.trim() === '') return false;
+  let u: URL;
+  try {
+    u = new URL(value);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'https:') return false;
+  if (u.username !== '' || u.password !== '') return false; // chặn credentials-in-URL
+  const host = u.hostname.toLowerCase();
+  return host === 'kiotviet.vn' || host.endsWith('.kiotviet.vn');
 }

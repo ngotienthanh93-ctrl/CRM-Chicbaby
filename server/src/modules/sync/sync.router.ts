@@ -10,9 +10,11 @@ import { writeAudit } from '../../security/audit';
 import { verifyReauth } from '../../security/reauth';
 import { formatVnDateTime } from '../../lib/datetime';
 import { encryptSecret } from '../../lib/crypto';
+import { runSerializable } from '../../lib/serializable';
 import { scrubSyncError } from './sync.helpers';
 import { processSyncEventsBatch } from './sync.processor';
 import { invalidateWebhookConfigCache } from './webhook.receiver';
+import { kiotviet, KiotVietNotConfiguredError } from '../../lib/kiotviet/client';
 
 export const syncRouter = Router();
 // 🔴 §11.4: chỉ chu_shop + tro_ly_du_lieu.
@@ -216,6 +218,125 @@ syncRouter.post(
       objectId: cred?.id ?? null,
     });
     res.json({ ok: true }); // KHÔNG trả lại secret/cipher.
+  }),
+);
+
+// ---------- Public API (pull) credentials — KV-01 ----------
+// 🔵 Lưu credential Public API KiotViet để PULL (backfill + đối soát + đăng ký webhook). Row api_credentials
+// RIÊNG provider='kiotviet_public_api' (TÁCH khỏi secret webhook 'kiotviet'). client_secret MÃ HÓA (AES-GCM);
+// clientId + retailer (không bí mật) ở meta. CHỈ chủ shop + reauth. KHÔNG bao giờ trả secret xuống client.
+const PUBLIC_API_PROVIDER = 'kiotviet_public_api';
+
+// GET: chỉ trạng thái cấu hình (đã có chưa + retailer + clientId che), KHÔNG lộ client_secret.
+syncRouter.get(
+  '/public-api-credentials',
+  asyncHandler(async (_req, res) => {
+    const cred = await prisma.apiCredential.findFirst({ where: { provider: PUBLIC_API_PROVIDER } });
+    const meta = (cred?.meta as { clientId?: string; retailer?: string } | null) ?? null;
+    const clientId = meta?.clientId ?? null;
+    const clientIdMasked = clientId
+      ? clientId.length <= 8
+        ? '***'
+        : `${clientId.slice(0, 4)}…${clientId.slice(-4)}`
+      : null;
+    res.json({
+      configured: cred != null && cred.secretCipher != null,
+      retailer: meta?.retailer ?? null,
+      clientIdMasked,
+    });
+  }),
+);
+
+// POST: đặt/đổi credential. chu_shop + reauth. Lưu mã hóa, KHÔNG trả lại secret.
+const publicApiCredsSchema = z.object({
+  clientId: z.string().trim().min(1).max(200),
+  clientSecret: z.string().min(1).max(500),
+  retailer: z.string().trim().min(1).max(200),
+  password: z.string().min(1),
+});
+syncRouter.post(
+  '/public-api-credentials',
+  requireRole('chu_shop'),
+  asyncHandler(async (req, res) => {
+    const parsed = publicApiCredsSchema.safeParse(req.body);
+    if (!parsed.success)
+      throw badRequest('Cần clientId, clientSecret, tên shop (retailer) và nhập lại mật khẩu.');
+    await verifyReauth(req.auth!.userId, parsed.data.password, req.ip);
+    const secretCipher = encryptSecret(parsed.data.clientSecret);
+    const meta = { clientId: parsed.data.clientId, retailer: parsed.data.retailer };
+    // 🔴 CONC: provider KHÔNG unique ⇒ findFirst-then-create có thể tạo 2 row khi 2 POST đua nhau. Serializable
+    // + gộp trùng: giữ row cũ nhất (cập nhật), xóa row thừa (phòng dữ liệu đã lỡ trùng). runSerializable retry P2034.
+    const credId = await runSerializable(async (tx) => {
+      const rows = await tx.apiCredential.findMany({
+        where: { provider: PUBLIC_API_PROVIDER },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (rows.length === 0) {
+        const created = await tx.apiCredential.create({
+          data: { provider: PUBLIC_API_PROVIDER, secretCipher, meta: meta as never },
+        });
+        return created.id;
+      }
+      const keep = rows[0]!;
+      if (rows.length > 1) {
+        await tx.apiCredential.deleteMany({ where: { id: { in: rows.slice(1).map((r) => r.id) } } });
+      }
+      await tx.apiCredential.update({ where: { id: keep.id }, data: { secretCipher, meta: meta as never } });
+      return keep.id;
+    });
+    // 🔴 Đổi credential ⇒ vô hiệu token cache cũ NGAY (không dùng token của creds cũ tới khi hết hạn).
+    kiotviet.invalidateToken();
+    await writeAudit({
+      userId: req.auth!.userId,
+      action: 'sync.public_api_credentials_set',
+      objectType: 'api_credential',
+      objectId: credId,
+    });
+    res.json({ ok: true }); // KHÔNG trả secret/cipher/clientId.
+  }),
+);
+
+// ---------- POST /public-api/test-connection — KV-02 ----------
+// 🔵 Smoke credential Public API: kiểm lấy token (xác thực) + gọi thử /categories (API tới được). Chỉ báo
+// ok/lỗi ĐÃ SCRUB — KHÔNG lộ token/secret/URL. manageSync (chu_shop + trợ lý dữ liệu).
+syncRouter.post(
+  '/public-api/test-connection',
+  asyncHandler(async (req, res) => {
+    const result: {
+      tokenOk: boolean;
+      apiOk: boolean;
+      sampleCount: number | null;
+      error: string | null;
+    } = { tokenOk: false, apiOk: false, sampleCount: null, error: null };
+
+    try {
+      await kiotviet.getAccessToken();
+      result.tokenOk = true;
+    } catch (e) {
+      result.error =
+        e instanceof KiotVietNotConfiguredError
+          ? 'Chưa cấu hình credential Public API.'
+          : scrubSyncError(e instanceof Error ? e.message : String(e)).errorSummary;
+      res.json(result);
+      return;
+    }
+
+    try {
+      const data = await kiotviet.kvGet<{ data?: unknown[] }>('/categories', { pageSize: 1 });
+      result.apiOk = true;
+      result.sampleCount = Array.isArray(data?.data) ? data.data.length : null;
+    } catch (e) {
+      result.error = scrubSyncError(e instanceof Error ? e.message : String(e)).errorSummary;
+    }
+
+    await writeAudit({
+      userId: req.auth!.userId,
+      action: 'sync.public_api_test_connection',
+      objectType: 'api_credential',
+      objectId: null,
+      newValue: { tokenOk: result.tokenOk, apiOk: result.apiOk },
+    });
+    res.json(result);
   }),
 );
 
