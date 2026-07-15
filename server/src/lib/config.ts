@@ -135,8 +135,9 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
     processorBatchSize: 50,
     processorIntervalMinutes: 1,
     webhookSignatureHeader: 'x-kiotviet-signature',
-    // 🔵 KV-01 — Public API (pull). Base/token chốt lại khi smoke; pull TẮT mặc định (bật ở SCR-14 khi có creds).
-    publicApiBaseUrl: 'https://public.kiotviet.vn',
+    // 🔵 KV-01/02 — Public API (pull). Host API bán lẻ = public.kiotapi.com (KHÔNG phải public.kiotviet.vn —
+    // đó là trang web tiếp thị); token ở id.kiotviet.vn. pull TẮT mặc định (bật ở SCR-14 khi sẵn sàng).
+    publicApiBaseUrl: 'https://public.kiotapi.com',
     tokenEndpoint: 'https://id.kiotviet.vn/connect/token',
     pageSize: 100,
     pullEnabled: 0,
@@ -257,10 +258,14 @@ export const KIOTVIET_URL_CONFIG_KEYS = new Set<string>([
   'sync.token_endpoint',
 ]);
 
+/** Miền hợp lệ của KiotViet: `kiotviet.vn` (token/web) + `kiotapi.com` (host API bán lẻ). */
+const KIOTVIET_ALLOWED_DOMAINS = ['kiotviet.vn', 'kiotapi.com'];
+
 /**
- * 🔴 SEC (CWE-918 SSRF / CWE-200 exfil): URL KiotViet chỉ hợp lệ khi HTTPS + host là `kiotviet.vn` hoặc
- * `*.kiotviet.vn` + KHÔNG kèm userinfo (user:pass@). Chặn cấu hình (dù chỉ chủ shop) trỏ token/secret/Bearer
- * sang host lạ hay dịch vụ nội bộ. Dùng CẢ khi ghi config (chặn) LẪN khi đọc trong client (fallback DEFAULT).
+ * 🔴 SEC (CWE-918 SSRF / CWE-200 exfil): URL KiotViet chỉ hợp lệ khi HTTPS + host thuộc một miền KiotViet
+ * (`kiotviet.vn`/`kiotapi.com` hoặc subdomain của chúng) + KHÔNG kèm userinfo (user:pass@). Chặn cấu hình
+ * (dù chỉ chủ shop) trỏ token/secret/Bearer sang host lạ hay dịch vụ nội bộ. Dùng CẢ khi ghi config (chặn)
+ * LẪN khi đọc trong client (fallback DEFAULT).
  */
 export function isValidKiotVietUrl(value: unknown): boolean {
   if (typeof value !== 'string' || value.trim() === '') return false;
@@ -273,5 +278,5 @@ export function isValidKiotVietUrl(value: unknown): boolean {
   if (u.protocol !== 'https:') return false;
   if (u.username !== '' || u.password !== '') return false; // chặn credentials-in-URL
   const host = u.hostname.toLowerCase();
-  return host === 'kiotviet.vn' || host.endsWith('.kiotviet.vn');
+  return KIOTVIET_ALLOWED_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
 }

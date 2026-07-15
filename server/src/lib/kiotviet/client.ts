@@ -64,6 +64,25 @@ interface CachedToken {
   expiresAtMs: number;
 }
 
+/**
+ * Lấy `client_RetailerCode` từ claims của access_token (JWT KiotViet) — nguồn CHÍNH XÁC cho header `Retailer`
+ * (token thuộc gian hàng nào thì claim này ghi rõ), tránh lỗi "Shop's name is invalid" do người dùng nhập sai
+ * tên shop. Chỉ ĐỌC claims (không xác minh chữ ký — token đã lấy qua TLS bằng client_secret của mình).
+ */
+export function retailerFromToken(token: string): string | null {
+  try {
+    const part = token.split('.')[1];
+    if (!part) return null;
+    const claims = JSON.parse(
+      Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'),
+    ) as { client_RetailerCode?: unknown };
+    const code = claims.client_RetailerCode;
+    return typeof code === 'string' && code.trim() !== '' ? code : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Giới hạn nhịp: nối tiếp các request cách nhau tối thiểu `minIntervalMs` ⇒ đảm bảo ≤ rpm (kể cả gọi song song). */
 class RateSpacer {
   private nextAt = 0;
@@ -190,11 +209,13 @@ export function createKiotVietClient(deps: KiotVietClientDeps): KiotVietClient {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       await spacerInst.acquire();
       const token = await getAccessToken();
+      // 🔵 Retailer LẤY TỪ TOKEN (client_RetailerCode) — chính xác hơn giá trị người dùng nhập; fallback về creds.
+      const retailer = retailerFromToken(token) ?? creds.retailer;
       let res: Response;
       try {
         res = await deps.fetchFn(url, {
           method: 'GET',
-          headers: { Authorization: `Bearer ${token}`, Retailer: creds.retailer, Accept: 'application/json' },
+          headers: { Authorization: `Bearer ${token}`, Retailer: retailer, Accept: 'application/json' },
         });
       } catch (e) {
         // 🔴 Lỗi mạng / timeout (AbortError). Còn lượt ⇒ backoff & thử lại; hết ⇒ ném lỗi ĐÃ chuẩn hóa (không kèm chi tiết).

@@ -2,10 +2,18 @@
 import { describe, it, expect } from 'vitest';
 import {
   createKiotVietClient,
+  retailerFromToken,
   KiotVietApiError,
   KiotVietNotConfiguredError,
   type KiotVietClientDeps,
 } from './client';
+
+/** Token giả dạng JWT có claim client_RetailerCode (để test lấy retailer từ token). */
+function tokenResWithRetailer(retailerCode: string): Response {
+  const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const jwt = `${b64({ alg: 'none' })}.${b64({ client_RetailerCode: retailerCode })}.sig`;
+  return fakeRes(200, { access_token: jwt, expires_in: 3600 });
+}
 
 /** Một response giả kiểu fetch Response (chỉ phần client dùng: ok/status/json/headers.get). */
 function fakeRes(
@@ -108,6 +116,19 @@ describe('KV-02 · KiotVietClient', () => {
     const headers = dataCall.init!.headers as Record<string, string>;
     expect(headers.Authorization).toBe('Bearer tok-x');
     expect(headers.Retailer).toBe('chicbabyshop');
+  });
+
+  it('Retailer lấy từ token (client_RetailerCode) ghi đè giá trị người dùng nhập', async () => {
+    const h = harness([tokenResWithRetailer('vodka'), fakeRes(200, { ok: true })]);
+    await h.client.kvGet('/categories');
+    const headers = h.calls[1]!.init!.headers as Record<string, string>;
+    expect(headers.Retailer).toBe('vodka'); // KHÔNG phải 'chicbabyshop' trong creds
+  });
+
+  it('retailerFromToken: token không phải JWT ⇒ null (fallback về creds)', () => {
+    expect(retailerFromToken('not-a-jwt')).toBeNull();
+    expect(retailerFromToken('')).toBeNull();
+    expect(retailerFromToken('a.b.c')).toBeNull(); // payload không decode được
   });
 
   it('429 ⇒ tôn trọng Retry-After rồi thử lại thành công', async () => {

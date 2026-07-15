@@ -65,8 +65,8 @@ meta: { clientId, retailer, baseUrl?, tokenEndpoint? } }`.
 ### 2.2. Config bổ sung (qua hệ config có version — nguyên tắc #9, thêm vào `DEFAULT_ENGINE_CONFIG.sync`)
 | key | default | ý nghĩa |
 |---|---|---|
-| `sync.public_api_base_url` | `https://public.kiotviet.vn` | base REST (chốt lại khi smoke) |
-| `sync.token_endpoint` | `https://id.kiotviet.vn/connect/token` | lấy access_token |
+| `sync.public_api_base_url` | `https://public.kiotapi.com` | base REST API bán lẻ (ĐÃ smoke 200 — KHÔNG phải public.kiotviet.vn) |
+| `sync.token_endpoint` | `https://id.kiotviet.vn/connect/token` | lấy access_token (đã xác nhận) |
 | `sync.page_size` | `100` | KiotViet trần 100/trang |
 | `sync.pull_enabled` | `0` | công tắc bật poll tự động (0=tắt tới khi sẵn sàng) |
 | `sync.max_requests_per_minute` | `30` | throttle chủ động tránh 429 |
@@ -154,7 +154,7 @@ hạ tần suất poll xuống vai lưới an toàn.
 
 ## 4. Câu hỏi cần chốt trong lúc làm (tự khám phá ở Phase KV-02/03)
 
-1. **Base URL & token scope thật** của tài khoản shop (xác nhận `public.kiotviet.vn` + `id.kiotviet.vn/connect/token`).
+1. ✅ **ĐÃ CHỐT (2026-07-15):** Base API = `https://public.kiotapi.com` (bán lẻ), token = `https://id.kiotviet.vn/connect/token`. Header `Retailer` LẤY TỪ token (`client_RetailerCode`) — chính xác hơn nhập tay. Smoke `/categories` = 200 (fields: `categoryId, categoryName, retailerId, createdDate`).
 2. **Tên field thật** mỗi object: khách (`contactNumber`? `code`?), SP (`fullName`? `basePrice`? category/độ tuổi?),
    invoice (`invoiceDetails[]`? `total`? `status` code?), return (`returnDetails[]`?). → in payload thật rồi chốt.
 3. **Mã `status` hóa đơn/đơn thật** → map vào `KvInvoiceStatus` + cập nhật `sync.openOrderStatuses` (SCR-14).
