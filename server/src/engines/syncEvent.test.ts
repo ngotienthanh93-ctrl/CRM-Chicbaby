@@ -5,6 +5,7 @@ import {
   nextStatusAfterFailure,
   normalizeSyncWebhook,
   isSyncObjectType,
+  recordToSyncEvent,
 } from './syncEvent';
 
 const SECRET = 'test-webhook-secret';
@@ -75,5 +76,33 @@ describe('syncEvent — normalizeSyncWebhook (chuẩn hóa + idempotency key)', 
   it('isSyncObjectType', () => {
     expect(isSyncObjectType('customer')).toBe(true);
     expect(isSyncObjectType('nope')).toBe(false);
+  });
+});
+
+describe('syncEvent — recordToSyncEvent (chuẩn hóa nguồn PULL, KV-05)', () => {
+  it('objectId từ record.id, kvModifiedAt từ record.modifiedDate, payload = record nguyên bản', () => {
+    const rec = { id: 123, code: 'SP1', modifiedDate: '2026-07-14T10:00:00Z' };
+    const ev = recordToSyncEvent('product', rec);
+    expect(ev.objectType).toBe('product');
+    expect(ev.objectId).toBe('123'); // id KiotViet dạng số ⇒ String
+    expect(ev.kvModifiedAt instanceof Date).toBe(true);
+    expect(ev.kvModifiedAt!.toISOString()).toBe('2026-07-14T10:00:00.000Z');
+    expect(ev.eventId).toBeNull(); // nguồn pull không có eventId webhook
+    expect(ev.payload).toBe(rec); // giữ nguyên record cho handler map
+  });
+  it('thiếu modifiedDate ⇒ kvModifiedAt null (idempotency vẫn dùng được, khóa NULL)', () => {
+    const ev = recordToSyncEvent('customer', { id: 456 });
+    expect(ev.objectId).toBe('456');
+    expect(ev.kvModifiedAt).toBeNull();
+  });
+  it('modifiedDate không hợp lệ ⇒ null (parse an toàn)', () => {
+    const ev = recordToSyncEvent('customer', { id: 7, modifiedDate: 'not-a-date' });
+    expect(ev.kvModifiedAt).toBeNull();
+  });
+  it('thiếu id / id khoảng trắng ⇒ objectId RỖNG (caller bỏ qua, không ghi mirror sai khóa)', () => {
+    expect(recordToSyncEvent('product', {}).objectId).toBe('');
+    expect(recordToSyncEvent('product', { id: null }).objectId).toBe('');
+    expect(recordToSyncEvent('product', { id: '   ' }).objectId).toBe(''); // trim ⇒ rỗng
+    expect(recordToSyncEvent('product', { Id: 88 }).objectId).toBe('88'); // fallback PascalCase
   });
 });

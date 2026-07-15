@@ -13,6 +13,7 @@ import { encryptSecret } from '../../lib/crypto';
 import { runSerializable } from '../../lib/serializable';
 import { scrubSyncError } from './sync.helpers';
 import { processSyncEventsBatch } from './sync.processor';
+import { beginBackfill } from './pull.service';
 import { invalidateWebhookConfigCache } from './webhook.receiver';
 import { kiotviet, KiotVietNotConfiguredError } from '../../lib/kiotviet/client';
 
@@ -169,8 +170,53 @@ syncRouter.post(
   }),
 );
 
+// ---------- POST /backfill — KV-05 ----------
+// 🔵 Nạp lịch sử sản phẩm + khách từ KiotViet (Public API) qua orchestrator thật: RESUME từ lastCursor (nếu có),
+// idempotent theo id KV, KHÔNG đụng dữ liệu CRM. Chủ shop + reauth + audit. Lease trong runBackfill chống chạy
+// chồng ⇒ gọi trùng khi đang chạy trả ran=false. Trả tiến độ/kết quả từng đối tượng + 1 lượt rút hàng đợi.
+const backfillSchema = z.object({ password: z.string().min(1) });
+syncRouter.post(
+  '/backfill',
+  requireRole('chu_shop'),
+  asyncHandler(async (req, res) => {
+    const parsed = backfillSchema.safeParse(req.body);
+    if (!parsed.success) throw badRequest('Cần nhập lại mật khẩu để chạy nạp dữ liệu KiotViet.');
+    await verifyReauth(req.auth!.userId, parsed.data.password, req.ip);
+
+    // 🔵 Giành lease ĐỒNG BỘ để biết có thật sự bắt đầu không: đang có lượt khác ⇒ 409 (không báo "đã bắt đầu" nhầm).
+    const begun = await beginBackfill();
+    if (!begun.started) {
+      res.status(409).json({ accepted: false, note: 'Đang có một lượt nạp KiotViet chạy — thử lại sau khi lượt hiện tại xong.' });
+      return;
+    }
+    // 🔴 Đã giành lease: nếu audit lỗi TRƯỚC khi chạy nền ⇒ NHẢ lease ngay (tránh kẹt tới TTL 10').
+    try {
+      await writeAudit({
+        userId: req.auth!.userId,
+        action: 'sync.backfill',
+        objectType: 'sync_state',
+        objectId: null,
+        reason: 'Bắt đầu nạp sản phẩm + khách (chủ shop, đã xác minh mật khẩu)',
+      });
+    } catch (e) {
+      await begun.release!().catch(() => {});
+      throw e;
+    }
+    // Chạy NỀN: backfill có thể vài phút (rate-limit KiotViet) ⇒ KHÔNG chặn request. Tiến độ ở GET /status, /queue.
+    // Lỗi nền log qua scrubber (SEC-10: không lộ URL/token/secret).
+    void begun.run!().catch((e) =>
+      console.error('[sync.backfill] lỗi nền:', scrubSyncError(e instanceof Error ? e.message : String(e)).errorSummary),
+    );
+    res.status(202).json({
+      accepted: true,
+      note: 'Đã bắt đầu nạp dữ liệu KiotViet ở chế độ nền. Theo dõi ở tab Trạng thái / Hàng đợi.',
+    });
+  }),
+);
+
 // ---------- POST /full-resync ----------
 // 🔴 SYNC-24: Chủ shop + xác nhận + mật khẩu. KHÔNG nhân đôi, KHÔNG mất dữ liệu CRM.
+// Nối orchestrator THẬT: reset cursor về đầu (nạp lại từ trang 1) rồi chạy backfill (upsert idempotent theo id KV).
 const fullResyncSchema = z.object({ password: z.string().min(1), confirm: z.literal(true) });
 syncRouter.post(
   '/full-resync',
@@ -182,16 +228,35 @@ syncRouter.post(
     await verifyReauth(req.auth!.userId, parsed.data.password, req.ip);
 
     const now = new Date();
-    // MVP: đặt lại cursor + mốc để mô phỏng khởi động resync (worker thật sẽ hook sau). KHÔNG động dữ liệu CRM.
-    await prisma.syncState.updateMany({ data: { lastCursor: null, lastSyncAt: now } });
-    await writeAudit({
-      userId: req.auth!.userId,
-      action: 'sync.full_resync',
-      objectType: 'sync_state',
-      objectId: null,
-      reason: 'Full resync (chủ shop, đã xác minh mật khẩu)',
+    // 🔵 Giành lease ĐỒNG BỘ; reset cursor + backfill nằm trong run() (chỉ mutate khi đã giành được lease).
+    const begun = await beginBackfill(undefined, { resetCursors: true });
+    if (!begun.started) {
+      res.status(409).json({ ok: false, accepted: false, note: 'Đang có một lượt đồng bộ KiotViet chạy — thử lại sau.' });
+      return;
+    }
+    // 🔴 Đã giành lease: audit lỗi TRƯỚC khi chạy nền ⇒ NHẢ lease ngay (tránh kẹt tới TTL).
+    try {
+      await writeAudit({
+        userId: req.auth!.userId,
+        action: 'sync.full_resync',
+        objectType: 'sync_state',
+        objectId: null,
+        reason: 'Full resync (chủ shop, đã xác minh mật khẩu)',
+      });
+    } catch (e) {
+      await begun.release!().catch(() => {});
+      throw e;
+    }
+    // Chạy NỀN. KHÔNG động dữ liệu CRM; upsert theo id KV ⇒ không nhân đôi (SYNC-24). Lỗi nền log qua scrubber.
+    void begun.run!().catch((e) =>
+      console.error('[sync.full_resync] lỗi nền:', scrubSyncError(e instanceof Error ? e.message : String(e)).errorSummary),
+    );
+    res.status(202).json({
+      ok: true,
+      accepted: true,
+      startedAt: formatVnDateTime(now),
+      note: 'Đã bắt đầu đồng bộ lại toàn bộ ở chế độ nền. Theo dõi ở tab Trạng thái / Hàng đợi.',
     });
-    res.json({ ok: true, startedAt: formatVnDateTime(now), note: 'Đã lên lịch đồng bộ lại toàn bộ (mô phỏng MVP).' });
   }),
 );
 

@@ -184,3 +184,34 @@ hạ tần suất poll xuống vai lưới an toàn.
 3. Verify độc lập: `npm test -w server`, boot 4000, smoke `curl` (login lấy cookie → gọi endpoint), đọc DB
    `docker exec chicbaby-crm-pg psql -U crm -d chicbaby_crm`.
 4. `/codex-impl-review` → `/codex-security-review` → áp fix → commit theo cụm trên **nhánh feature** (không thẳng main).
+
+---
+
+## 7. Shapes THẬT đã xác nhận (2026-07-15 · retailer `vodka`) — HỢP ĐỒNG cho mapper
+
+> Lấy trực tiếp từ `https://public.kiotapi.com` (200). Field names CHÍNH XÁC (camelCase). Header `Retailer` lấy từ
+> token. Phân trang: response `{ total, pageSize, data[] }`, offset qua `currentItem`, `pageSize` ≤ 100; incremental
+> qua `lastModifiedFrom`. Mirror key = `String(record.id)` (id KiotViet dạng số).
+
+**Category** (`/categories`, total 6): `categoryId:number · categoryName:string · retailerId:number · createdDate:string`
+
+**Product** (`/products`, total 1494): `id:number · code:string · barCode:string · name:string · fullName:string ·
+categoryId:number · categoryName:string · allowsSale:bool · type:number · hasVariants:bool · basePrice:number ·
+weight:number · conversionValue:number · modifiedDate:string · isActive:bool · isLotSerialControl · isBatchExpireControl`
+→ KvProduct: `code, name(=name/fullName), unit(null - không có), price(=basePrice), categoryId(=String), kvDeleted(=!isActive), kvModifiedAt(=modifiedDate)`
+
+**Customer** (`/customers`, total 6469): `id:number · code:string · name:string · contactNumber:string · address:string ·
+retailerId:number · branchId:number · locationName:string · wardName:string · modifiedDate:string · createdDate:string ·
+type:number · debt:number`
+→ KvCustomer: `code, name, phone(=contactNumber), address, customerGroup(null - không có), kvModifiedAt(=modifiedDate)`
+
+**Branch** (`/branches`, total 1): `id · branchName · address · contactNumber · retailerId · createdDate`
+
+**⚠️ Invoice / Order / Return**: tài khoản `vodka` trả **total=0** với MỌI tham số (branchIds, khoảng ngày, orderBy,
+includePayment). API vẫn chạy (`/salechannel`=2). ⇒ **mapper hóa đơn/dòng/trả (KV-04) TẠM HOÃN** tới khi giải quyết
+quyền truy cập hóa đơn / xác nhận đúng tài khoản. KV-03/05 chỉ làm **khách + sản phẩm** (shape đã chắc).
+
+**⚠️ KV-06 điều kiện tiên quyết (security review 2026-07-15 #1 — TOCTOU watermark):** TRƯỚC khi lên lịch `pullDelta`
+tự động, THÊM field watermark RIÊNG ở `SyncState` (migration) = thời điểm bắt đầu pull, TÁCH khỏi `lastSyncAt`
+(processor đang ghi `now()` mỗi sự kiện cho hiển thị "đồng bộ lần cuối"). Nếu không tách, record đổi TRONG lúc
+backfill/xử lý bị bỏ ở lần delta đầu (mirror cũ). Hiện `pullDelta` CHƯA có ai gọi nên lỗi chưa kích hoạt.

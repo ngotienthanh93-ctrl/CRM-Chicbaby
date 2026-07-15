@@ -108,37 +108,92 @@ function pickBool(p: Record<string, unknown>, ...keys: string[]): boolean {
   for (const k of keys) if (p[k] === true || p[k] === 'true' || p[k] === 1) return true;
   return false;
 }
+/** Lấy giá trị SỐ theo nhiều tên khóa — trả number|null. Giữ 0 (giá hợp lệ), bỏ '' / null / NaN. */
+function pickNumber(p: Record<string, unknown>, ...keys: string[]): number | null {
+  for (const k of keys) {
+    const v = p[k];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v);
+  }
+  return null;
+}
+/** §7: sản phẩm bị vô hiệu khi isActive === false. THIẾU cờ ⇒ KHÔNG suy ra deleted (an toàn). */
+function isInactive(p: Record<string, unknown>): boolean {
+  for (const k of ['isActive', 'IsActive']) {
+    const v = p[k];
+    if (v === false || v === 'false' || v === 0) return true;
+    if (v === true || v === 'true' || v === 1) return false;
+  }
+  return false;
+}
 
-// 🔴 Handler THAM CHIẾU (khách + sản phẩm). Khóa mirror = objectId từ ENVELOPE (đã ký) — KHÔNG dùng payload.id
-// (chống payload lệch ghi sang bản ghi khác). Tên TRƯỜNG ánh xạ phòng thủ (PascalCase KiotViet + camelCase) —
-// CHỐT CHÍNH XÁC khi có API Spike. Stale-check: sự kiện đến trễ KHÔNG ghi đè dữ liệu mới hơn.
-const handleCustomer: KvMirrorHandler = async ({ objectId, kvModifiedAt, payload }, tx) => {
+// 🔵 KV-03 — MAPPER THUẦN (test được, không DB): payload KiotViet → trường mirror kv_*. Chốt theo SHAPE THẬT §7
+// (KIOTVIET-INTEGRATION-PLAN.md). pick() phòng thủ PascalCase (webhook) + camelCase (pull) ⇒ MỘT mapping dùng
+// chung cả pull lẫn webhook. kvModifiedAt KHÔNG nằm ở đây — lấy từ ENVELOPE (đã ký / recordToSyncEvent) ở handler.
+
+/** Trường mirror KvProduct suy từ payload (trừ kvModifiedAt lấy từ envelope). */
+export interface ProductMirrorFields {
+  code: string | null;
+  name: string;
+  unit: string | null;
+  price: number | null;
+  categoryId: string | null;
+  kvDeleted: boolean;
+}
+export function mapProduct(payload: unknown): ProductMirrorFields {
   const p = asRecord(payload);
-  const current = await tx.kvCustomer.findUnique({ where: { kvCustomerId: objectId }, select: { kvModifiedAt: true } });
-  if (isStale(kvModifiedAt, current?.kvModifiedAt)) return; // event cũ hơn ⇒ bỏ qua
-  const data = {
+  return {
+    code: pick(p, 'code', 'Code'),
+    // §7: có cả name & fullName ⇒ ưu tiên name, fallback fullName.
+    name: pick(p, 'name', 'Name', 'fullName', 'FullName') ?? '(không tên)',
+    // §7: KiotViet KHÔNG trả unit ⇒ null; pick phòng thủ nếu webhook có gửi.
+    unit: pick(p, 'unit', 'Unit'),
+    // §7: basePrice (số) → cột Decimal.
+    price: pickNumber(p, 'basePrice', 'BasePrice'),
+    // §7: categoryId (số) → String.
+    categoryId: pick(p, 'categoryId', 'CategoryId'),
+    // §7: kvDeleted = !isActive (hoặc cờ isDeleted phòng thủ từ webhook).
+    kvDeleted: pickBool(p, 'isDeleted', 'IsDeleted', '_deleted') || isInactive(p),
+  };
+}
+
+/** Trường mirror KvCustomer suy từ payload (trừ kvModifiedAt lấy từ envelope). */
+export interface CustomerMirrorFields {
+  code: string | null;
+  name: string;
+  phone: string | null;
+  customerGroup: string | null;
+  address: string | null;
+  kvDeleted: boolean;
+}
+export function mapCustomer(payload: unknown): CustomerMirrorFields {
+  const p = asRecord(payload);
+  return {
     code: pick(p, 'code', 'Code'),
     name: pick(p, 'name', 'Name') ?? '(không tên)',
+    // §7: SĐT ở contactNumber; phone/Phone phòng thủ cho webhook.
     phone: pick(p, 'contactNumber', 'ContactNumber', 'phone', 'Phone'),
+    // §7: response khách KHÔNG có nhóm ⇒ null; pick phòng thủ nếu webhook gửi.
     customerGroup: pick(p, 'customerGroup', 'CustomerGroup', 'groupName', 'GroupName'),
     address: pick(p, 'address', 'Address'),
-    kvModifiedAt,
     kvDeleted: pickBool(p, 'isDeleted', 'IsDeleted', '_deleted'),
   };
+}
+
+// 🔴 Handler khách + sản phẩm. Khóa mirror = objectId từ ENVELOPE (recordToSyncEvent / webhook đã ký) — KHÔNG
+// dùng payload.id (chống payload lệch ghi sang bản ghi khác). Trường ánh xạ qua mapper thuần KV-03 (dùng chung
+// pull + webhook). Stale-check: sự kiện đến trễ KHÔNG ghi đè dữ liệu mới hơn. kvModifiedAt lấy từ envelope.
+const handleCustomer: KvMirrorHandler = async ({ objectId, kvModifiedAt, payload }, tx) => {
+  const current = await tx.kvCustomer.findUnique({ where: { kvCustomerId: objectId }, select: { kvModifiedAt: true } });
+  if (isStale(kvModifiedAt, current?.kvModifiedAt)) return; // event cũ hơn ⇒ bỏ qua
+  const data = { ...mapCustomer(payload), kvModifiedAt };
   await tx.kvCustomer.upsert({ where: { kvCustomerId: objectId }, create: { kvCustomerId: objectId, ...data }, update: data });
 };
 
 const handleProduct: KvMirrorHandler = async ({ objectId, kvModifiedAt, payload }, tx) => {
-  const p = asRecord(payload);
   const current = await tx.kvProduct.findUnique({ where: { kvProductId: objectId }, select: { kvModifiedAt: true } });
   if (isStale(kvModifiedAt, current?.kvModifiedAt)) return;
-  const data = {
-    code: pick(p, 'code', 'Code'),
-    name: pick(p, 'name', 'Name', 'fullName', 'FullName') ?? '(không tên)',
-    unit: pick(p, 'unit', 'Unit'),
-    kvModifiedAt,
-    kvDeleted: pickBool(p, 'isDeleted', 'IsDeleted', '_deleted'),
-  };
+  const data = { ...mapProduct(payload), kvModifiedAt };
   await tx.kvProduct.upsert({ where: { kvProductId: objectId }, create: { kvProductId: objectId, ...data }, update: data });
 };
 

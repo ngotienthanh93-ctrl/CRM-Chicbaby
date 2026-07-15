@@ -75,3 +75,25 @@ function parseKvDate(v: unknown): Date | null {
   const d = typeof v === 'number' ? new Date(v) : new Date(String(v));
   return Number.isNaN(d.getTime()) ? null : d;
 }
+
+/**
+ * 🔵 KV-05 — Chuẩn hóa MỘT bản ghi nguồn PULL (fetch phân trang) → NormalizedSyncEvent, để đi CHUNG đường ống
+ * `enqueueSyncEvent` + processor + mapper như webhook (một đường mapping duy nhất). Nguồn pull KHÔNG có eventId
+ * webhook ⇒ null; khóa idempotency vẫn là (objectType, objectId, kvModifiedAt) — SYNC-03.
+ *   objectId    = String(record.id)     (id KiotViet dạng số, §7)
+ *   kvModifiedAt = parse(record.modifiedDate)  (ISO an toàn; thiếu/không hợp lệ ⇒ null)
+ *   payload     = record nguyên bản (để handler map sang mirror)
+ */
+export function recordToSyncEvent(objectType: SyncObjectType, record: unknown): NormalizedSyncEvent {
+  const r = (record == null || typeof record !== 'object' ? {} : record) as Record<string, unknown>;
+  const rawId = r.id ?? r.Id;
+  // 🔴 objectId RỖNG nếu thiếu id (bản ghi dị dạng) — caller (drainPages) BỎ QUA, không enqueue để tránh ghi
+  // mirror sai khóa. Trim để id chỉ toàn khoảng trắng cũng bị coi là rỗng.
+  return {
+    objectType,
+    objectId: rawId == null ? '' : String(rawId).trim(),
+    kvModifiedAt: parseKvDate(r.modifiedDate ?? r.ModifiedDate),
+    eventId: null,
+    payload: record ?? null,
+  };
+}
